@@ -52,14 +52,14 @@ folder password and reopen automatically.
 Passwords and session keys are never written to plain-text configuration files.
 
 The device id used in the `User-Agent` and the last account are stored in
-`~/.config/chomikujrc`.
+`~/.config/chomikujrc`; they can be edited in the Chomikuj.pl control module.
 
 ## Build
 
 Requirements:
 
-- KDE Frameworks 6 (KIO, I18n, Config)
-- Qt 6.5 or newer
+- KDE Frameworks 6 (KIO, I18n, Config, KCMUtils)
+- Qt 6.5 or newer (Core, Network, Widgets)
 - CMake 3.20 or newer
 - extra-cmake-modules (ECM)
 - zlib
@@ -73,13 +73,16 @@ sudo cmake --install build
 On Arch Linux the build dependencies are:
 
 ```bash
-sudo pacman -S base-devel cmake extra-cmake-modules qt6-base kio ki18n zlib
+sudo pacman -S base-devel cmake extra-cmake-modules qt6-base kio ki18n kcmutils zlib
 ```
 
 The worker is installed as `chomikuj.so` under
 `${KDE_INSTALL_PLUGINDIR}/kf6/kio` (usually
-`/usr/lib/qt6/plugins/kf6/kio`). Restart applications that cache KIO protocol
-information after installing.
+`/usr/lib/qt6/plugins/kf6/kio`). The control module is installed under
+`plasma/kcms/systemsettings_qwidgets` and appears in System Settings under
+**Network → Chomikuj.pl**, where the default account, device name and device
+ID can be configured. Restart applications that cache KIO protocol information
+after installing.
 
 ## Testing
 

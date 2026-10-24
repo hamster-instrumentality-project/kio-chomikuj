@@ -18,6 +18,8 @@ Implemented in this repository:
 - password-protected folder prompts and automatic reopen
 - CRC32 + 512 KiB chunked upload with reconciliation after ambiguous failures
 - listing cache with a short TTL so reload works after external changes
+- a System Settings control module for default account, device name and device
+  ID
 - offline unit tests, plugin-registration test and a gated self-cleaning live
   check (own account read/write and public-account listing)
 - a local `kioclient` smoke test against a mock server has been run manually,
@@ -32,7 +34,6 @@ Still open / intentionally deferred:
 
 - upload resume through KIO `put` (server-side resume already works inside a
   single put once the file has been read)
-- a dedicated KCM/account manager
 - a KIO docbook/man page and packaged translations
 
 ## 1. Goal

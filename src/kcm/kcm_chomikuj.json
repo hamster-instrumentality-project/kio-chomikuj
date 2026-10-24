@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Description": "Configure the Chomikuj.pl KIO worker",
+        "Icon": "folder-remote",
+        "Name": "Chomikuj.pl",
+        "ServiceTypes": [
+            "KCModule"
+        ]
+    },
+    "X-KDE-System-Settings-Parent-Category": "network",
+    "X-KDE-Keywords": "chomikuj,cloud,storage,network"
+}
