@@ -1,0 +1,52 @@
+<?xml version="1.0" ?>
+<!DOCTYPE article PUBLIC "-//KDE//DTD DocBook XML V4.5-Based Variant V1.1//EN" "dtd/kdedbx45.dtd" [
+<!ENTITY % addindex "IGNORE">
+<!ENTITY % English "INCLUDE" >
+]>
+
+<article lang="&language;" id="chomikuj">
+<title>chomikuj</title>
+
+<articleinfo>
+<authorgroup>
+  <author><personname><firstname>kio-chomikuj</firstname><surname>contributors</surname></personname></author>
+<!-- TRANS:ROLES_OF_TRANSLATORS -->
+</authorgroup>
+</articleinfo>
+
+<para>
+The <emphasis>chomikuj</emphasis> worker gives KIO applications access to
+files stored on <ulink url="https://chomikuj.pl">Chomikuj.pl</ulink> through
+its Mobile API v3.
+</para>
+
+<para>
+Use a URL such as <userinput>chomikuj://<replaceable>account</replaceable>/</userinput>
+to browse your own files.  The account is the Chomikuj.pl login name.  The
+worker asks for the password through the standard KIO password dialog and can
+remember it in KWallet.
+</para>
+
+<para>
+The URL <userinput>chomikuj:/</userinput> uses the last account configured in
+the Chomikuj.pl control module or the last account that was opened
+successfully.
+</para>
+
+<para>
+Public accounts can be browsed read-only with
+<userinput>chomikuj://<replaceable>other-account</replaceable>/</userinput>.
+The worker signs in with your own account and resolves the other account
+through Chomikuj's account search.  Password-protected folders ask for their
+folder password.
+</para>
+
+<para>
+Supported operations are listing, stat, download, upload, folder creation,
+rename/move and delete.  There is no timestamp information in the API, listing
+sizes are rounded down to whole kilobytes, uploads are implemented as a
+delete-after-successful-upload replacement, and copying is implemented as
+download plus upload.
+</para>
+
+</article>

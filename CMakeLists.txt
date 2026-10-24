@@ -17,7 +17,7 @@ find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Core Network Widgets)
 if (BUILD_TESTING)
     find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Test)
 endif ()
-find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS Config I18n KCMUtils KIO)
+find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS Config DocTools I18n KCMUtils KIO)
 find_package(ZLIB REQUIRED)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -75,6 +75,7 @@ target_link_libraries(kio_chomikuj
 set_target_properties(kio_chomikuj PROPERTIES OUTPUT_NAME "chomikuj")
 
 add_subdirectory(src/kcm)
+add_subdirectory(doc)
 
 if (BUILD_TESTING)
     add_subdirectory(autotests)

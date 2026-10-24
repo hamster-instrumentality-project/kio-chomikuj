@@ -20,6 +20,8 @@ void PluginTest::protocolIsRegistered()
     QVERIFY(KProtocolInfo::isKnownProtocol(QStringLiteral("chomikuj")));
     QCOMPARE(KProtocolInfo::protocolClass(QStringLiteral("chomikuj")), QStringLiteral(":internet"));
     QCOMPARE(KProtocolInfo::icon(QStringLiteral("chomikuj")), QStringLiteral("folder-remote"));
+    QCOMPARE(KProtocolInfo::docPath(QStringLiteral("chomikuj")),
+             QStringLiteral("kioworker6/chomikuj/index.html"));
 }
 
 QTEST_GUILESS_MAIN(PluginTest)
