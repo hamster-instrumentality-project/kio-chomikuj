@@ -574,7 +574,9 @@ KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::Job
                 return KIO::WorkerResult::fail(KIO::ERR_CANNOT_WRITE, tempFile.fileName());
             }
             received += buffer.size();
-            processedSize(received);
+            if (sourceSizeKnown) {
+                processedSize(qMin(received, sourceSize) / 2);
+            }
             if (wasKilled()) {
                 return KIO::WorkerResult::fail(KIO::ERR_USER_CANCELED, url.path());
             }
@@ -584,6 +586,7 @@ KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::Job
         tempFile.flush();
         tempFile.close();
         totalSize(size);
+        processedSize(size / 2);
 
         const bool overwrite = flags & KIO::Overwrite;
         withAuthRetry([&] {
@@ -591,11 +594,8 @@ KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::Job
                 tempFile.fileName(),
                 pathOf(url),
                 overwrite,
-                [&](qint64 current, qint64 total) {
-                    if (total >= 0 && total != size) {
-                        totalSize(total);
-                    }
-                    processedSize(current);
+                [&](qint64 current, qint64) {
+                    processedSize(qMin(size, size / 2 + current / 2));
                 },
                 [&] {
                     return wasKilled();
@@ -691,7 +691,12 @@ KIO::WorkerResult ChomikujWorker::copy(const QUrl &src, const QUrl &dest, int pe
             return KIO::WorkerResult::fail(KIO::ERR_CANNOT_WRITE, tempFile.fileName());
         }
 
-        totalSize(source.sizeBytes);
+        // The API reports sizes rounded down to whole kilobytes; use the
+        // listing size only as the first approximation.  Reserve the first
+        // half of the progress range for the download and the second half for
+        // the upload so the bar never jumps back to zero.
+        const qint64 listedSize = qMax<qint64>(1, source.sizeBytes);
+        totalSize(listedSize);
         qint64 downloaded = 0;
         withAuthRetry([&] {
             m_fileSystem->download(
@@ -704,17 +709,10 @@ KIO::WorkerResult ChomikujWorker::copy(const QUrl &src, const QUrl &dest, int pe
                         return false;
                     }
                     downloaded += chunk.size();
-                    processedSize(downloaded);
+                    processedSize(qMin(downloaded, listedSize) / 2);
                     return true;
                 },
-                [&](qint64 current, qint64 total) {
-                    if (total >= 0) {
-                        totalSize(total);
-                    }
-                    if (current >= 0) {
-                        processedSize(current);
-                    }
-                },
+                nullptr,
                 [&] {
                     return wasKilled();
                 });
@@ -722,18 +720,16 @@ KIO::WorkerResult ChomikujWorker::copy(const QUrl &src, const QUrl &dest, int pe
         tempFile.flush();
         tempFile.close();
 
-        totalSize(tempFile.size());
-        processedSize(0);
+        const qint64 copySize = tempFile.size();
+        totalSize(copySize);
+        processedSize(copySize / 2);
         withAuthRetry([&] {
             m_fileSystem->upload(
                 tempFile.fileName(),
                 pathOf(dest),
                 flags & KIO::Overwrite,
-                [&](qint64 current, qint64 total) {
-                    if (total >= 0) {
-                        totalSize(total);
-                    }
-                    processedSize(current);
+                [&](qint64 current, qint64) {
+                    processedSize(qMin(copySize, copySize / 2 + current / 2));
                 },
                 [&] {
                     return wasKilled();
