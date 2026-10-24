@@ -54,36 +54,85 @@ Passwords and session keys are never written to plain-text configuration files.
 The device id used in the `User-Agent` and the last account are stored in
 `~/.config/chomikujrc`; they can be edited in the Chomikuj.pl control module.
 
-## Build
+## Build and install
 
 Requirements:
 
-- KDE Frameworks 6 (KIO, I18n, Config, KCMUtils, DocTools)
-- Qt 6.5 or newer (Core, Network, Widgets)
+- KDE Frameworks 6: KIO, I18n, Config, KCMUtils, DocTools
+- Qt 6.5 or newer: Core, Network, Widgets
 - CMake 3.20 or newer
 - extra-cmake-modules (ECM)
 - zlib
+- gettext (`msgfmt`)
+- a C++20 compiler and Ninja or Make
+
+On Arch Linux:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+sudo pacman -S --needed base-devel cmake ninja extra-cmake-modules \
+    qt6-base kio ki18n kcmutils kdoctools gettext zlib
+```
+
+### System-wide install (recommended)
+
+Install into `/usr` so that KIO and System Settings find the plugins without
+extra environment variables:
+
+```bash
+cmake -S . -B build \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build build
 sudo cmake --install build
 ```
 
-On Arch Linux the build dependencies are:
+The installed files are (on a typical Qt6/Arch layout):
 
-```bash
-sudo pacman -S base-devel cmake extra-cmake-modules qt6-base kio ki18n kcmutils kdoctools gettext zlib
+```
+/usr/lib/qt6/plugins/kf6/kio/chomikuj.so
+/usr/lib/qt6/plugins/plasma/kcms/systemsettings_qwidgets/kcm_chomikuj.so
+/usr/share/applications/kcm_chomikuj.desktop
+/usr/share/doc/HTML/en/kioworker6/chomikuj/
+/usr/share/locale/pl/LC_MESSAGES/kio6_chomikuj.mo
 ```
 
-The worker is installed as `chomikuj.so` under
-`${KDE_INSTALL_PLUGINDIR}/kf6/kio` (usually
-`/usr/lib/qt6/plugins/kf6/kio`). The control module is installed under
-`plasma/kcms/systemsettings_qwidgets` and appears in System Settings under
-**Network → Chomikuj.pl**, where the default account, device name and device
-ID can be configured. A Polish translation of the worker/KCM messages is
-installed when the `pl` catalogue is present. Restart applications that cache
-KIO protocol information after installing.
+### User-local install
+
+For a build that does not touch `/usr`, use a prefix such as `$HOME/.local`
+and point Qt and XDG at it:
+
+```bash
+cmake -S . -B build \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build build
+cmake --install build
+
+export QT_PLUGIN_PATH="$HOME/.local/lib/qt6/plugins:$QT_PLUGIN_PATH"
+export XDG_DATA_DIRS="$HOME/.local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+```
+
+The environment variables must also be visible to the KIO daemon (`kiod6`), not
+only to the application. A system-wide install is therefore the simplest
+option.
+
+### Verify
+
+```bash
+# The protocol should be registered
+kioclient ls "chomikuj://your-account/"
+
+# The control module should be listed
+kcmshell6 --list | grep kcm_chomikuj
+```
+
+After installing, restart applications that cache KIO protocol information
+(Dolphin, file dialogs, etc.) and, if necessary, log out and back in so the KIO
+daemon picks up the new plugin. The control module appears in System Settings
+under **Network → Chomikuj.pl**, where the default account, device name and
+device ID can be configured.
 
 ## Testing
 
