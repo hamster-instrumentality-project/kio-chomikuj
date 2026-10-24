@@ -116,6 +116,7 @@ private Q_SLOTS:
     void alreadyComplete();
     void resetAfterConflict();
     void finalChunkTimeoutAfterBodySent();
+    void lastDataChunkTimeoutAfterBodySent();
     void filenameEscaping();
     void cancel();
 };
@@ -260,6 +261,40 @@ void UploadTest::finalChunkTimeoutAfterBodySent()
                 return response;
             }
             return jsonResponse(206, "{}");
+        }
+        return jsonResponse(500, "{}");
+    };
+
+    QList<qint64> progress;
+    fixture.client->uploadFile(file.fileName(), 5, QStringLiteral("probe.bin"),
+                               [&](qint64 current, qint64 total) {
+                                   QCOMPARE(total, qint64(10));
+                                   progress.append(current);
+                               },
+                               [] { return false; });
+    QCOMPARE(progress.last(), qint64(10));
+}
+
+void UploadTest::lastDataChunkTimeoutAfterBodySent()
+{
+    QTemporaryFile file;
+    QVERIFY(file.open());
+    QCOMPARE(file.write("0123456789"), qint64(10));
+    file.flush();
+
+    UploadFixture fixture;
+    fixture.size = 10;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/files/upload/partialUpload")) {
+            return jsonResponse(200, "{\"Code\":0,\"Url\":\"https://upload.test/target\","
+                                       "\"Chunk\":0,\"UploadCompleted\":false}");
+        }
+        if (request.url.host() == QLatin1String("upload.test")) {
+            HttpResponse response;
+            response.status = 0;
+            response.errorString = QStringLiteral("timeout");
+            response.requestBodySent = true;
+            return response;
         }
         return jsonResponse(500, "{}");
     };
