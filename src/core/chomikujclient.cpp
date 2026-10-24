@@ -6,6 +6,7 @@
 #include "chomikujclient.h"
 
 #include "chomikujerror.h"
+#include "retry.h"
 #include "signing.h"
 #include "uploader.h"
 
@@ -521,7 +522,7 @@ QJsonObject ChomikujClient::request(const QByteArray &method,
         if ((response.isNetworkError() || retryableStatus)
             && attempt < m_maxRetries
             && (idempotent || mayRetry || response.status == 429)) {
-            QThread::msleep(static_cast<unsigned long>(500 * (1 << attempt)));
+            QThread::msleep(static_cast<unsigned long>(retryDelayMs(attempt)));
             continue;
         }
 

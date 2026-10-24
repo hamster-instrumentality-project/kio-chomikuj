@@ -41,6 +41,8 @@ add_library(chomikujcore STATIC
     src/core/httptransport.cpp
     src/core/qthttptransport.h
     src/core/qthttptransport.cpp
+    src/core/retry.h
+    src/core/retry.cpp
     src/core/chomikujclient.h
     src/core/chomikujclient.cpp
     src/core/chomikujfilesystem.h

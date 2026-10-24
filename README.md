@@ -196,6 +196,8 @@ For local integration testing, the worker honours:
 - `CHOMIKUJ_BASE_URL` — override the API base URL (e.g. a mock server)
 - `CHOMIKUJ_ACCOUNT` / `CHOMIKUJ_PASSWORD` — test credentials, bypassing the
   password dialog
+- `CHOMIKUJ_RETRY_BASE_MS` / `CHOMIKUJ_RETRY_MAX_MS` — override the retry
+  backoff window (defaults: 500 ms doubling to 8 s, with full jitter)
 
 These are intended for development and CI only.
 

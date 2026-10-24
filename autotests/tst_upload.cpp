@@ -109,6 +109,7 @@ class UploadTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void initTestCase();
     void oneChunk();
     void zeroLength();
     void multipleChunks();
@@ -117,6 +118,12 @@ private Q_SLOTS:
     void filenameEscaping();
     void cancel();
 };
+
+void UploadTest::initTestCase()
+{
+    qputenv("CHOMIKUJ_RETRY_BASE_MS", "1");
+    qputenv("CHOMIKUJ_RETRY_MAX_MS", "1");
+}
 
 void UploadTest::oneChunk()
 {

@@ -190,6 +190,8 @@ void ClientTest::httpError()
 
 void ClientTest::retriesIdempotent()
 {
+    qputenv("CHOMIKUJ_RETRY_BASE_MS", "1");
+    qputenv("CHOMIKUJ_RETRY_MAX_MS", "1");
     Fixture fixture;
     int calls = 0;
     fixture.fake->handler = [&](const Chomikuj::HttpRequest &) {

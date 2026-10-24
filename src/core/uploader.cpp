@@ -7,10 +7,10 @@
 
 #include "chomikujclient.h"
 #include "chomikujerror.h"
+#include "retry.h"
 
 #include <QFile>
 #include <QFileInfo>
-#include <QThread>
 #include <QUuid>
 
 #include <KIO/Global>
@@ -24,7 +24,7 @@ namespace
 {
 
 constexpr int s_maxReconcileAttempts = 5;
-constexpr int s_maxReconcilePolls = 8;
+constexpr int s_maxReconcilePolls = 5;
 constexpr int s_maxTerminalResponses = 2;
 
 bool isCancelled(const std::function<bool()> &cancelled)
@@ -36,16 +36,6 @@ void throwIfCancelled(const std::function<bool()> &cancelled)
 {
     if (isCancelled(cancelled)) {
         throw Error(KIO::ERR_USER_CANCELED, QStringLiteral("Upload cancelled"));
-    }
-}
-
-void sleepInterruptible(int milliseconds, const std::function<bool()> &cancelled)
-{
-    while (milliseconds > 0) {
-        throwIfCancelled(cancelled);
-        const int step = qMin(milliseconds, 50);
-        QThread::msleep(static_cast<unsigned long>(step));
-        milliseconds -= step;
     }
 }
 
@@ -150,8 +140,7 @@ bool reconcile(ChomikujClient &client,
     int stable = 0;
 
     for (int attempt = 1; attempt <= s_maxReconcilePolls; ++attempt) {
-        const int delay = qMin(1000, 100 * (1 << qMin(attempt, 4)));
-        sleepInterruptible(delay, cancelled);
+        sleepInterruptible(retryDelayMs(attempt - 1), cancelled);
         throwIfCancelled(cancelled);
 
         UploadSlot slot;
