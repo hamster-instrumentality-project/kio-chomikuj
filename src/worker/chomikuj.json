@@ -1,0 +1,27 @@
+{
+    "KDE-KIO-Protocols": {
+        "chomikuj": {
+            "Class": ":internet",
+            "ExtraNames": [],
+            "Icon": "folder-remote",
+                  "deleteRecursive": true,
+            "deleting": true,
+            "input": "none",
+            "linking": false,
+            "listing": [
+                "Name",
+                "Type",
+                "Size",
+                "Access",
+                "Owner"
+            ],
+            "makedir": true,
+            "moving": true,
+            "opening": false,
+            "output": "filesystem",
+            "protocol": "chomikuj",
+            "reading": true,
+            "writing": true
+        }
+    }
+}
