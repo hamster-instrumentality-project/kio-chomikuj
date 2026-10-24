@@ -57,6 +57,12 @@ struct Listing
     bool nextPageAvailable = false;
 };
 
+struct AccountSearchItem
+{
+    qint64 id = 0;
+    QString name;
+};
+
 struct LoginResult
 {
     QString accountId;

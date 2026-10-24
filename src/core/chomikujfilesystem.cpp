@@ -13,6 +13,7 @@
 #include <KIO/Global>
 
 #include <optional>
+#include <utility>
 
 namespace Chomikuj
 {
@@ -65,9 +66,23 @@ std::optional<Entry> findChildOptional(const QList<Entry> &entries, const QStrin
 
 } // namespace
 
-ChomikujFileSystem::ChomikujFileSystem(ChomikujClient &client)
+ChomikujFileSystem::ChomikujFileSystem(ChomikujClient &client, qint64 listAccountId,
+                                       qint64 ownerAccountId, bool readOnly)
     : m_client(client)
+    , m_listAccountId(listAccountId)
+    , m_ownerAccountId(ownerAccountId)
+    , m_readOnly(readOnly)
 {
+}
+
+void ChomikujFileSystem::setPasswordProvider(PasswordProvider provider)
+{
+    m_passwordProvider = std::move(provider);
+}
+
+bool ChomikujFileSystem::isReadOnly() const
+{
+    return m_readOnly;
 }
 
 QList<Entry> ChomikujFileSystem::list(const QString &path)
@@ -83,6 +98,7 @@ Entry ChomikujFileSystem::stat(const QString &path)
 
 Entry ChomikujFileSystem::mkdir(const QString &path)
 {
+    ensureWritable();
     qint64 parentId = 0;
     QString name;
     resolveParent(path, &parentId, &name);
@@ -106,6 +122,7 @@ Entry ChomikujFileSystem::mkdir(const QString &path)
 
 void ChomikujFileSystem::rename(const QString &source, const QString &destination, bool overwrite)
 {
+    ensureWritable();
     const QString sourcePath = normalizedPath(source);
     const QString destinationPath = normalizedPath(destination);
 
@@ -162,6 +179,7 @@ void ChomikujFileSystem::rename(const QString &source, const QString &destinatio
 
 void ChomikujFileSystem::remove(const QString &path, bool isFile, bool recursive)
 {
+    ensureWritable();
     qint64 parentId = 0;
     QString name;
     resolveParent(path, &parentId, &name);
@@ -187,6 +205,7 @@ void ChomikujFileSystem::upload(const QString &localPath, const QString &destina
                                 const ProgressCallback &progress,
                                 const std::function<bool()> &cancelled)
 {
+    ensureWritable();
     qint64 parentId = 0;
     QString name;
     resolveParent(destination, &parentId, &name);
@@ -237,9 +256,55 @@ QList<Entry> ChomikujFileSystem::listFolder(qint64 folderId, bool useCache)
         }
     }
 
-    const QList<Entry> entries = m_client.listFolder(folderId);
+    QList<Entry> entries;
+    for (int attempt = 0;; ++attempt) {
+        try {
+            entries = m_client.listFolder(folderId, m_listAccountId);
+            break;
+        } catch (const Error &error) {
+            if (error.businessCode() == 12 && m_passwordProvider && attempt < 2) {
+                openProtectedFolder(folderId);
+                continue;
+            }
+            throw;
+        }
+    }
+
     m_cache.insert(folderId, entries);
     return entries;
+}
+
+void ChomikujFileSystem::ensureWritable() const
+{
+    if (m_readOnly) {
+        throw Error(KIO::ERR_ACCESS_DENIED,
+                    QStringLiteral("This Chomikuj account is read-only"));
+    }
+}
+
+void ChomikujFileSystem::openProtectedFolder(qint64 folderId)
+{
+    QString errorMessage;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        QString password;
+        if (!m_passwordProvider || !m_passwordProvider(folderId, &password, errorMessage)) {
+            throw Error(KIO::ERR_ACCESS_DENIED,
+                        QStringLiteral("The folder password was not provided"));
+        }
+
+        try {
+            m_client.folderPassword(m_ownerAccountId, folderId, password);
+            return;
+        } catch (const Error &error) {
+            if (error.businessCode() != 12) {
+                throw;
+            }
+            errorMessage = error.message();
+        }
+    }
+
+    throw Error(KIO::ERR_ACCESS_DENIED,
+                QStringLiteral("Could not open the protected folder"));
 }
 
 Entry ChomikujFileSystem::findChild(qint64 parentId, const QString &name, bool useCache)

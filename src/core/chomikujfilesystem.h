@@ -22,7 +22,14 @@ class ChomikujClient;
 class ChomikujFileSystem
 {
 public:
-    explicit ChomikujFileSystem(ChomikujClient &client);
+    using PasswordProvider =
+        std::function<bool(qint64 folderId, QString *password, const QString &errorMessage)>;
+
+    ChomikujFileSystem(ChomikujClient &client, qint64 listAccountId = 0,
+                       qint64 ownerAccountId = 0, bool readOnly = false);
+
+    void setPasswordProvider(PasswordProvider provider);
+    bool isReadOnly() const;
 
     QList<Entry> list(const QString &path);
     Entry stat(const QString &path);
@@ -50,8 +57,14 @@ private:
     Entry resolveEntry(const QString &path);
     void resolveParent(const QString &path, qint64 *parentId, QString *name);
     void invalidate(qint64 folderId);
+    void ensureWritable() const;
+    void openProtectedFolder(qint64 folderId);
 
     ChomikujClient &m_client;
+    qint64 m_listAccountId = 0;
+    qint64 m_ownerAccountId = 0;
+    bool m_readOnly = false;
+    PasswordProvider m_passwordProvider;
     QHash<qint64, QList<Entry>> m_cache;
 };
 

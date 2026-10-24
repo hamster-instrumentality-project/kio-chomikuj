@@ -53,8 +53,12 @@ int main(int argc, char **argv)
                                    QStringLiteral("Run the create/upload/rename/move/download/delete round-trip"));
     QCommandLineOption keepOption(QStringLiteral("keep"),
                                   QStringLiteral("Keep temporary folders for debugging"));
+    QCommandLineOption publicOption(QStringLiteral("public"),
+                                    QStringLiteral("List the public root of the given account (read-only)"),
+                                    QStringLiteral("account"));
     parser.addOption(writeOption);
     parser.addOption(keepOption);
+    parser.addOption(publicOption);
     parser.process(app);
 
     const QString account = qEnvironmentVariable("CHOMIKUJ_ACCOUNT");
@@ -96,6 +100,24 @@ int main(int argc, char **argv)
 
         const QList<Entry> root = client->listFolder(0);
         QTextStream(stdout) << "root lists " << root.size() << " entries\n";
+
+        if (parser.isSet(publicOption)) {
+            const QString wanted = parser.value(publicOption);
+            const QList<AccountSearchItem> matches = client->searchAccounts(wanted);
+            qint64 accountId = 0;
+            for (const AccountSearchItem &item : matches) {
+                if (item.name.compare(wanted, Qt::CaseInsensitive) == 0) {
+                    accountId = item.id;
+                    break;
+                }
+            }
+            if (accountId <= 0) {
+                return fail(QStringLiteral("no public account named %1").arg(wanted));
+            }
+            const QList<Entry> publicRoot = client->listFolder(0, accountId);
+            QTextStream(stdout) << "public account " << wanted << " (id " << accountId
+                                << ") lists " << publicRoot.size() << " entries\n";
+        }
 
         if (!parser.isSet(writeOption)) {
             return 0;

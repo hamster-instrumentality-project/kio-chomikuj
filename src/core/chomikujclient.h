@@ -45,8 +45,10 @@ public:
 
     LoginResult login(const QString &accountName, const QString &password);
 
-    QList<Entry> listFolder(qint64 parentId);
-    Listing listFolderPage(qint64 parentId, int page);
+    QList<Entry> listFolder(qint64 parentId, qint64 accountId = 0);
+    Listing listFolderPage(qint64 parentId, int page, qint64 accountId = 0);
+    QList<AccountSearchItem> searchAccounts(const QString &query);
+    void folderPassword(qint64 accountId, qint64 folderId, const QString &password);
 
     qint64 createFolder(const QString &name, qint64 parentId);
     void changeFileName(qint64 fileId, const QString &newName);
@@ -76,7 +78,7 @@ public:
                         bool mayRetry = false);
 
 private:
-    QJsonObject requestPage(qint64 parentId, int page);
+    QJsonObject requestPage(qint64 parentId, int page, qint64 accountId);
 
     std::unique_ptr<HttpTransport> m_transport;
     QString m_deviceId;

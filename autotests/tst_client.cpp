@@ -64,6 +64,9 @@ private Q_SLOTS:
     void httpError();
     void retriesIdempotent();
     void download();
+    void accountSearch();
+    void publicListing();
+    void folderPassword();
 };
 
 void ClientTest::login()
@@ -239,6 +242,81 @@ void ClientTest::download()
 
     QCOMPARE(received, QByteArray("hello world"));
     QVERIFY(!progress.isEmpty());
+}
+
+void ClientTest::accountSearch()
+{
+    Fixture fixture;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/account/login")) {
+            return jsonResponse(200, "{\"Code\":0,\"AccountId\":\"42\","
+                                       "\"AccountName\":\"user\",\"ApiKey\":\"KEY\"}");
+        }
+        if (request.url.path() == QLatin1String("/api/v3/account/search")) {
+            const QUrlQuery query(request.url);
+            if (query.queryItemValue(QStringLiteral("Query")) != QLatin1String("Other")) {
+                return jsonResponse(400, "{\"Message\":\"bad query\"}");
+            }
+            return jsonResponse(200,
+                                "{\"IsNextPageAvailable\":false,\"Results\":["
+                                "{\"AccountId\":123,\"AccountName\":\"Other\"},"
+                                "{\"AccountId\":456,\"AccountName\":\"Other2\"}]}");
+        }
+        return jsonResponse(500, "{}");
+    };
+    fixture.client->login(QStringLiteral("user"), QStringLiteral("pass"));
+
+    const QList<Chomikuj::AccountSearchItem> results =
+        fixture.client->searchAccounts(QStringLiteral("Other"));
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.at(0).id, qint64(123));
+    QCOMPARE(results.at(0).name, QStringLiteral("Other"));
+}
+
+void ClientTest::publicListing()
+{
+    Fixture fixture;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/account/login")) {
+            return jsonResponse(200, "{\"Code\":0,\"AccountId\":\"42\","
+                                       "\"AccountName\":\"user\",\"ApiKey\":\"KEY\"}");
+        }
+        if (request.url.path() == QLatin1String("/api/v3/folders")) {
+            const QUrlQuery query(request.url);
+            if (query.queryItemValue(QStringLiteral("AccountId")) != QLatin1String("123")) {
+                return jsonResponse(400, "{\"Message\":\"missing account id\"}");
+            }
+            return jsonResponse(200, folderPage("", "", false));
+        }
+        return jsonResponse(500, "{}");
+    };
+    fixture.client->login(QStringLiteral("user"), QStringLiteral("pass"));
+
+    const QList<Chomikuj::Entry> entries = fixture.client->listFolder(0, 123);
+    QVERIFY(entries.isEmpty());
+}
+
+void ClientTest::folderPassword()
+{
+    Fixture fixture;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/account/login")) {
+            return jsonResponse(200, "{\"Code\":0,\"AccountId\":\"42\","
+                                       "\"AccountName\":\"user\",\"ApiKey\":\"KEY\"}");
+        }
+        if (request.url.path() == QLatin1String("/api/v3/folders/password")) {
+            const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+            if (body.value(QStringLiteral("AccountId")).toInt() != 123
+                || body.value(QStringLiteral("FolderId")).toInt() != 7
+                || body.value(QStringLiteral("Password")).toString() != QLatin1String("secret")) {
+                return jsonResponse(400, "{\"Message\":\"bad password body\"}");
+            }
+            return jsonResponse(200, "{}");
+        }
+        return jsonResponse(500, "{}");
+    };
+    fixture.client->login(QStringLiteral("user"), QStringLiteral("pass"));
+    fixture.client->folderPassword(123, 7, QStringLiteral("secret"));
 }
 
 QTEST_GUILESS_MAIN(ClientTest)

@@ -123,6 +123,8 @@ private Q_SLOTS:
     void deleteRecursive();
     void uploadWithoutOverwrite();
     void uploadWithOverwrite();
+    void readOnlyAccount();
+    void protectedFolder();
 };
 
 void FileSystemTest::listAndStat()
@@ -280,6 +282,77 @@ void FileSystemTest::uploadWithOverwrite()
     }
     QVERIFY(deleted);
     QVERIFY(negotiated);
+}
+
+void FileSystemTest::readOnlyAccount()
+{
+    Fixture fixture;
+    ChomikujFileSystem readOnly(*fixture.client, 123, 123, true);
+    try {
+        readOnly.mkdir(QStringLiteral("/Music/New"));
+        QFAIL("expected a read-only error");
+    } catch (const Chomikuj::Error &error) {
+        QCOMPARE(error.kioCode(), static_cast<int>(KIO::ERR_ACCESS_DENIED));
+    }
+    try {
+        readOnly.remove(QStringLiteral("/Music/A.mp3"), true, false);
+        QFAIL("expected a read-only error");
+    } catch (const Chomikuj::Error &error) {
+        QCOMPARE(error.kioCode(), static_cast<int>(KIO::ERR_ACCESS_DENIED));
+    }
+}
+
+void FileSystemTest::protectedFolder()
+{
+    Fixture fixture;
+    bool passwordRequested = false;
+    int folderListCalls = 0;
+    fixture.fake->handler = [&](const Chomikuj::HttpRequest &request) -> Chomikuj::HttpResponse {
+        const QString path = request.url.path();
+        if (path == QLatin1String("/api/v3/folders")) {
+            const QString parent = QUrlQuery(request.url).queryItemValue(QStringLiteral("Parent"));
+            if (parent == QLatin1String("0")) {
+                return jsonResponse(200,
+                                    listing("{\"Id\":7,\"Name\":\"Music\",\"HasPassword\":true}",
+                                            ""));
+            }
+            if (parent == QLatin1String("7")) {
+                ++folderListCalls;
+                if (folderListCalls == 1) {
+                    return jsonResponse(401, "{\"Code\":12,\"Message\":\"Folder password\"}");
+                }
+                return jsonResponse(200,
+                                    listing("", "{\"FileId\":2,\"FileName\":\"A\","
+                                                "\"FileType\":\"mp3\",\"Size\":1}"));
+            }
+        }
+        if (path == QLatin1String("/api/v3/folders/password")) {
+            const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+            if (body.value(QStringLiteral("FolderId")).toInt() != 7
+                || body.value(QStringLiteral("Password")).toString() != QLatin1String("secret")) {
+                return jsonResponse(400, "{\"Message\":\"bad folder password body\"}");
+            }
+            passwordRequested = true;
+            return jsonResponse(200, "{}");
+        }
+        return jsonResponse(500, "{}");
+    };
+
+    int prompts = 0;
+    fixture.fs->setPasswordProvider([&](qint64 folderId, QString *password, const QString &) {
+        if (folderId != 7) {
+            return false;
+        }
+        ++prompts;
+        *password = QStringLiteral("secret");
+        return true;
+    });
+
+    const QList<Chomikuj::Entry> entries = fixture.fs->list(QStringLiteral("/Music"));
+    QCOMPARE(prompts, 1);
+    QVERIFY(passwordRequested);
+    QCOMPARE(entries.size(), 1);
+    QCOMPARE(entries.first().name, QStringLiteral("A.mp3"));
 }
 
 QTEST_GUILESS_MAIN(FileSystemTest)

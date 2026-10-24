@@ -28,6 +28,7 @@
 
 #include <memory>
 
+using Chomikuj::AccountSearchItem;
 using Chomikuj::ChomikujClient;
 using Chomikuj::ChomikujFileSystem;
 using Chomikuj::Entry;
@@ -97,6 +98,8 @@ public:
 
 private:
     void ensureAuthenticated(bool forceReLogin = false, const QString &errorMessage = {});
+    void configureFileSystem();
+    bool promptFolderPassword(qint64 folderId, QString *password, const QString &errorMessage);
     ChomikujClient &client();
 
     KIO::UDSEntry udsEntry(const Entry &entry, const QUrl &url) const;
@@ -109,6 +112,9 @@ private:
         try {
             return function();
         } catch (const Error &error) {
+            if (error.businessCode() == 12) {
+                throw; // Protected folder; handled by the filesystem password provider.
+            }
             if (error.httpStatus() == 401) {
                 m_client->clearApiKey();
                 ensureAuthenticated(true);
@@ -129,7 +135,8 @@ private:
                                        QString::fromUtf8(error.what()));
     }
 
-    QString m_account;
+    QString m_targetAccount;
+    QString m_loginAccount;
     std::unique_ptr<ChomikujClient> m_client;
     std::unique_ptr<ChomikujFileSystem> m_fileSystem;
 };
@@ -147,9 +154,14 @@ void ChomikujWorker::setHost(const QString &host, quint16 port, const QString &u
 {
     Q_UNUSED(port)
     Q_UNUSED(pass)
-    m_account = user.isEmpty() ? host : user;
-    if (m_account.isEmpty()) {
-        m_account = configString("LastAccount");
+    m_targetAccount = user.isEmpty() ? host : user;
+    if (m_targetAccount.isEmpty()) {
+        m_targetAccount = configString("LastAccount");
+    }
+    m_loginAccount.clear();
+    m_fileSystem.reset();
+    if (m_client) {
+        m_client->clearApiKey();
     }
 }
 
@@ -166,6 +178,9 @@ ChomikujClient &ChomikujWorker::client()
 void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &errorMessage)
 {
     if (!forceReLogin && m_client && m_client->hasApiKey()) {
+        if (!m_fileSystem) {
+            configureFileSystem();
+        }
         return;
     }
 
@@ -174,20 +189,26 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
             std::make_unique<Chomikuj::QtHttpTransport>(),
             deviceId(), deviceName());
     }
+    if (forceReLogin) {
+        m_client->clearApiKey();
+    }
 
-    if (m_account.isEmpty()) {
-        m_account = configString("LastAccount");
+    if (m_loginAccount.isEmpty()) {
+        m_loginAccount = configString("LastAccount");
     }
     const QString environmentAccount = qEnvironmentVariable("CHOMIKUJ_ACCOUNT");
-    if (m_account.isEmpty() && !environmentAccount.isEmpty()) {
-        m_account = environmentAccount;
+    if (!environmentAccount.isEmpty()) {
+        m_loginAccount = environmentAccount;
+    }
+    if (m_loginAccount.isEmpty()) {
+        m_loginAccount = m_targetAccount;
     }
 
     KIO::AuthInfo authInfo;
     authInfo.caption = i18n("Chomikuj.pl");
     authInfo.keepPassword = true;
-    authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_account));
-    authInfo.username = m_account;
+    authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
+    authInfo.username = m_loginAccount;
     authInfo.realmValue = QStringLiteral("chomikuj");
 
     const QString environmentPassword = qEnvironmentVariable("CHOMIKUJ_PASSWORD");
@@ -195,16 +216,16 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
         authInfo.password = environmentPassword;
     }
 
-    if (m_account.isEmpty()) {
+    if (m_loginAccount.isEmpty()) {
         authInfo.prompt = i18n("Enter your Chomikuj.pl account name and password");
         const int dialogResult = openPasswordDialog(authInfo, errorMessage);
         if (dialogResult != 0 || authInfo.username.isEmpty()) {
             throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
         }
-        m_account = authInfo.username;
-        authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_account));
+        m_loginAccount = authInfo.username;
+        authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
     } else if (authInfo.password.isEmpty()) {
-        authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_account);
+        authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_loginAccount);
         if (!checkCachedAuthentication(authInfo)) {
             const int dialogResult = openPasswordDialog(authInfo, errorMessage);
             if (dialogResult != 0) {
@@ -214,7 +235,7 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     }
 
     if (authInfo.password.isEmpty()) {
-        authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_account);
+        authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_loginAccount);
         const int dialogResult = openPasswordDialog(authInfo, errorMessage);
         if (dialogResult != 0 || authInfo.password.isEmpty()) {
             throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
@@ -222,16 +243,16 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     }
 
     try {
-        client().login(m_account, authInfo.password);
+        client().login(m_loginAccount, authInfo.password);
     } catch (const Error &error) {
         if (error.httpStatus() == 401 && errorMessage.isEmpty()) {
             authInfo.password.clear();
             const int dialogResult = openPasswordDialog(
-                authInfo, i18n("The password for “%1” was rejected.", m_account));
+                authInfo, i18n("The password for “%1” was rejected.", m_loginAccount));
             if (dialogResult != 0) {
                 throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
             }
-            client().login(m_account, authInfo.password);
+            client().login(m_loginAccount, authInfo.password);
         } else {
             throw;
         }
@@ -240,8 +261,87 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     if (authInfo.keepPassword && environmentPassword.isEmpty()) {
         cacheAuthentication(authInfo);
     }
-    writeConfigString("LastAccount", m_account);
-    m_fileSystem = std::make_unique<ChomikujFileSystem>(client());
+    writeConfigString("LastAccount", m_loginAccount);
+
+    if (m_targetAccount.isEmpty()) {
+        m_targetAccount = m_loginAccount;
+    }
+    configureFileSystem();
+}
+
+void ChomikujWorker::configureFileSystem()
+{
+    m_fileSystem.reset();
+    if (!m_client) {
+        return;
+    }
+
+    if (m_targetAccount.isEmpty()) {
+        m_targetAccount = m_client->accountName();
+    }
+    if (m_loginAccount.isEmpty()) {
+        m_loginAccount = m_client->accountName();
+    }
+
+    qint64 listAccountId = 0;
+    qint64 ownerAccountId = m_client->accountId().toLongLong();
+    bool readOnly = false;
+
+    const bool isOwnAccount =
+        m_targetAccount.compare(m_client->accountName(), Qt::CaseInsensitive) == 0
+        || m_targetAccount.compare(m_loginAccount, Qt::CaseInsensitive) == 0;
+
+    if (!isOwnAccount) {
+        const QList<AccountSearchItem> results = m_client->searchAccounts(m_targetAccount);
+        qint64 targetId = 0;
+        for (const AccountSearchItem &item : results) {
+            if (item.name.compare(m_targetAccount, Qt::CaseInsensitive) == 0) {
+                targetId = item.id;
+                break;
+            }
+        }
+        if (targetId <= 0) {
+            throw Error(KIO::ERR_DOES_NOT_EXIST,
+                        i18n("No Chomikuj account named “%1” was found", m_targetAccount));
+        }
+        listAccountId = targetId;
+        ownerAccountId = targetId;
+        readOnly = true;
+    }
+
+    m_fileSystem = std::make_unique<ChomikujFileSystem>(client(), listAccountId,
+                                                        ownerAccountId, readOnly);
+    m_fileSystem->setPasswordProvider(
+        [this](qint64 folderId, QString *password, const QString &error) {
+            return promptFolderPassword(folderId, password, error);
+        });
+}
+
+bool ChomikujWorker::promptFolderPassword(qint64 folderId, QString *password,
+                                          const QString &errorMessage)
+{
+    KIO::AuthInfo authInfo;
+    authInfo.caption = i18n("Chomikuj.pl");
+    authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_targetAccount));
+    authInfo.username = m_loginAccount;
+    authInfo.realmValue = QStringLiteral("chomikuj-folder-%1").arg(folderId);
+    authInfo.prompt = i18n("Enter the password for the protected folder");
+    authInfo.keepPassword = true;
+
+    if (checkCachedAuthentication(authInfo) && !authInfo.password.isEmpty()) {
+        *password = authInfo.password;
+        return true;
+    }
+
+    const int dialogResult = openPasswordDialog(authInfo, errorMessage);
+    if (dialogResult != 0 || authInfo.password.isEmpty()) {
+        return false;
+    }
+    if (authInfo.keepPassword) {
+        cacheAuthentication(authInfo);
+    }
+    *password = authInfo.password;
+    return true;
 }
 
 KIO::WorkerResult ChomikujWorker::openConnection()
@@ -272,21 +372,30 @@ KIO::UDSEntry ChomikujWorker::udsEntry(const Entry &entry, const QUrl &url) cons
     uds.fastInsert(KIO::UDSEntry::UDS_FILE_TYPE, entry.isDir ? S_IFDIR : S_IFREG);
     uds.fastInsert(KIO::UDSEntry::UDS_SIZE, entry.isDir ? 0 : entry.sizeBytes);
 
+    const bool readOnly = m_fileSystem && m_fileSystem->isReadOnly();
     if (entry.isDir) {
-        uds.fastInsert(KIO::UDSEntry::UDS_ACCESS,
-                       static_cast<qlonglong>(S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH));
+        qlonglong access = S_IRUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
+        if (!readOnly) {
+            access |= S_IWUSR | S_IWGRP;
+        }
+        uds.fastInsert(KIO::UDSEntry::UDS_ACCESS, access);
         uds.fastInsert(KIO::UDSEntry::UDS_ICON_NAME, QStringLiteral("folder"));
         if (entry.isHidden) {
             uds.fastInsert(KIO::UDSEntry::UDS_HIDDEN, 1);
         }
     } else {
-        uds.fastInsert(KIO::UDSEntry::UDS_ACCESS,
-                       static_cast<qlonglong>(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH));
+        qlonglong access = S_IRUSR | S_IRGRP | S_IROTH;
+        if (!readOnly) {
+            access |= S_IWUSR;
+        }
+        uds.fastInsert(KIO::UDSEntry::UDS_ACCESS, access);
         uds.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE,
                        Chomikuj::mimeTypeForName(entry.name));
     }
 
-    const QString account = m_client ? m_client->accountName() : QString();
+    const QString account = m_targetAccount.isEmpty()
+        ? (m_client ? m_client->accountName() : QString())
+        : m_targetAccount;
     if (!account.isEmpty()) {
         uds.fastInsert(KIO::UDSEntry::UDS_USER, account);
     }
@@ -299,8 +408,12 @@ KIO::UDSEntry ChomikujWorker::dotEntry() const
     uds.fastInsert(KIO::UDSEntry::UDS_NAME, QStringLiteral("."));
     uds.fastInsert(KIO::UDSEntry::UDS_FILE_TYPE, S_IFDIR);
     uds.fastInsert(KIO::UDSEntry::UDS_SIZE, 0);
-    uds.fastInsert(KIO::UDSEntry::UDS_ACCESS,
-                   static_cast<qlonglong>(S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH));
+
+    qlonglong access = S_IRUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
+    if (!(m_fileSystem && m_fileSystem->isReadOnly())) {
+        access |= S_IWUSR | S_IWGRP;
+    }
+    uds.fastInsert(KIO::UDSEntry::UDS_ACCESS, access);
     uds.fastInsert(KIO::UDSEntry::UDS_ICON_NAME, QStringLiteral("folder"));
     return uds;
 }
@@ -406,6 +519,9 @@ KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::Job
     Q_UNUSED(permissions)
     try {
         ensureAuthenticated();
+        if (m_fileSystem->isReadOnly()) {
+            return KIO::WorkerResult::fail(KIO::ERR_ACCESS_DENIED, url.path());
+        }
         // We always upload from offset 0, but FileCopyJob expects this signal
         // before it starts pumping data from the source job.
         canResume(0);
@@ -504,6 +620,9 @@ KIO::WorkerResult ChomikujWorker::copy(const QUrl &src, const QUrl &dest, int pe
     Q_UNUSED(permissions)
     try {
         ensureAuthenticated();
+        if (m_fileSystem->isReadOnly()) {
+            return KIO::WorkerResult::fail(KIO::ERR_ACCESS_DENIED, dest.path());
+        }
         if (pathOf(src) == pathOf(dest)) {
             return KIO::WorkerResult::fail(KIO::ERR_FILE_ALREADY_EXIST, dest.path());
         }

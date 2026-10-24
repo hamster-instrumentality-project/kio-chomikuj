@@ -181,11 +181,11 @@ LoginResult ChomikujClient::login(const QString &accountName, const QString &pas
     return result;
 }
 
-QList<Entry> ChomikujClient::listFolder(qint64 parentId)
+QList<Entry> ChomikujClient::listFolder(qint64 parentId, qint64 accountId)
 {
     QList<Entry> entries;
     for (int page = 1; page <= s_maxPage; ++page) {
-        const Listing listing = listFolderPage(parentId, page);
+        const Listing listing = listFolderPage(parentId, page, accountId);
         for (const Folder &folder : listing.folders) {
             if (folder.name.isEmpty()) {
                 continue;
@@ -220,9 +220,9 @@ QList<Entry> ChomikujClient::listFolder(qint64 parentId)
     return entries;
 }
 
-Listing ChomikujClient::listFolderPage(qint64 parentId, int page)
+Listing ChomikujClient::listFolderPage(qint64 parentId, int page, qint64 accountId)
 {
-    const QJsonObject response = requestPage(parentId, page);
+    const QJsonObject response = requestPage(parentId, page, accountId);
 
     Listing listing;
     listing.parentId = parentId;
@@ -263,12 +263,52 @@ Listing ChomikujClient::listFolderPage(qint64 parentId, int page)
     return listing;
 }
 
-QJsonObject ChomikujClient::requestPage(qint64 parentId, int page)
+QJsonObject ChomikujClient::requestPage(qint64 parentId, int page, qint64 accountId)
 {
-    return request(QByteArrayLiteral("GET"),
-                   QStringLiteral("/folders"),
-                   {{QStringLiteral("Parent"), QString::number(parentId)},
-                    {QStringLiteral("page"), QString::number(page)}});
+    QList<QPair<QString, QString>> query = {
+        {QStringLiteral("Parent"), QString::number(parentId)},
+        {QStringLiteral("page"), QString::number(page)},
+    };
+    if (accountId > 0) {
+        query.append({QStringLiteral("AccountId"), QString::number(accountId)});
+    }
+    return request(QByteArrayLiteral("GET"), QStringLiteral("/folders"), query);
+}
+
+QList<AccountSearchItem> ChomikujClient::searchAccounts(const QString &query)
+{
+    QList<AccountSearchItem> results;
+    for (int page = 1; page <= s_maxPage; ++page) {
+        const QJsonObject response = request(
+            QByteArrayLiteral("GET"),
+            QStringLiteral("/account/search"),
+            {{QStringLiteral("Query"), query},
+             {QStringLiteral("PageNumber"), QString::number(page)}});
+
+        const QJsonArray items = response.value(QStringLiteral("Results")).toArray();
+        for (const QJsonValue &value : items) {
+            const QJsonObject object = value.toObject();
+            AccountSearchItem item;
+            item.id = jsonLongLong(object.value(QStringLiteral("AccountId")));
+            item.name = object.value(QStringLiteral("AccountName")).toString();
+            if (item.id > 0 && !item.name.isEmpty()) {
+                results.append(item);
+            }
+        }
+        if (!response.value(QStringLiteral("IsNextPageAvailable")).toBool()) {
+            break;
+        }
+    }
+    return results;
+}
+
+void ChomikujClient::folderPassword(qint64 accountId, qint64 folderId, const QString &password)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("AccountId"), static_cast<double>(accountId));
+    body.insert(QStringLiteral("FolderId"), static_cast<double>(folderId));
+    body.insert(QStringLiteral("Password"), password);
+    request(QByteArrayLiteral("POST"), QStringLiteral("/folders/password"), {}, &body);
 }
 
 qint64 ChomikujClient::createFolder(const QString &name, qint64 parentId)
