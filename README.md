@@ -51,6 +51,13 @@ using public-account URLs. Password-protected public folders prompt for the
 folder password and reopen automatically.
 Passwords and session keys are never written to plain-text configuration files.
 
+The URL host selects the account being browsed. Writes are only allowed when
+that account is also the account you are signed in as. The account field in the
+KIO login dialog is honoured: changing it signs in as that account. For
+`chomikuj:/`, the browsed account follows the signed-in account; for
+`chomikuj://account/`, the host stays the browsed account, so signing in as a
+different account makes it read-only.
+
 The device id used in the `User-Agent` and the last account are stored in
 `~/.config/chomikujrc`; they can be edited in the Chomikuj.pl control module.
 

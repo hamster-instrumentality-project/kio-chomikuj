@@ -11,6 +11,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QMimeDatabase>
 #include <QStandardPaths>
 #include <QTemporaryFile>
@@ -137,6 +138,7 @@ private:
 
     QString m_targetAccount;
     QString m_loginAccount;
+    bool m_targetExplicit = false;
     std::unique_ptr<ChomikujClient> m_client;
     std::unique_ptr<ChomikujFileSystem> m_fileSystem;
 };
@@ -154,7 +156,9 @@ void ChomikujWorker::setHost(const QString &host, quint16 port, const QString &u
 {
     Q_UNUSED(port)
     Q_UNUSED(pass)
-    m_targetAccount = user.isEmpty() ? host : user;
+    const QString requestedAccount = user.isEmpty() ? host : user;
+    m_targetExplicit = !requestedAccount.isEmpty();
+    m_targetAccount = requestedAccount;
     if (m_targetAccount.isEmpty()) {
         m_targetAccount = configString("LastAccount");
     }
@@ -231,6 +235,10 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
             if (dialogResult != 0) {
                 throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
             }
+            if (!authInfo.username.isEmpty()) {
+                m_loginAccount = authInfo.username;
+                authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
+            }
         }
     }
 
@@ -239,6 +247,10 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
         const int dialogResult = openPasswordDialog(authInfo, errorMessage);
         if (dialogResult != 0 || authInfo.password.isEmpty()) {
             throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
+        }
+        if (!authInfo.username.isEmpty()) {
+            m_loginAccount = authInfo.username;
+            authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
         }
     }
 
@@ -252,6 +264,10 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
             if (dialogResult != 0) {
                 throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
             }
+            if (!authInfo.username.isEmpty()) {
+                m_loginAccount = authInfo.username;
+                authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
+            }
             client().login(m_loginAccount, authInfo.password);
         } else {
             throw;
@@ -263,7 +279,7 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     }
     writeConfigString("LastAccount", m_loginAccount);
 
-    if (m_targetAccount.isEmpty()) {
+    if (m_targetAccount.isEmpty() || !m_targetExplicit) {
         m_targetAccount = m_loginAccount;
     }
     configureFileSystem();
@@ -541,7 +557,9 @@ KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::Job
         }
 
         qint64 received = 0;
-        totalSize(0);
+        bool sourceSizeKnown = false;
+        const qint64 sourceSize = metaData(QStringLiteral("sourceSize")).toLongLong(&sourceSizeKnown);
+        totalSize(sourceSizeKnown ? sourceSize : 0);
         for (;;) {
             QByteArray buffer;
             dataReq();
@@ -629,6 +647,31 @@ KIO::WorkerResult ChomikujWorker::copy(const QUrl &src, const QUrl &dest, int pe
         if (m_fileSystem->isReadOnly()) {
             return KIO::WorkerResult::fail(KIO::ERR_ACCESS_DENIED, dest.path());
         }
+
+        if (src.isLocalFile()) {
+            const QFileInfo localFile(src.toLocalFile());
+            if (!localFile.isFile()) {
+                return KIO::WorkerResult::fail(KIO::ERR_UNSUPPORTED_ACTION, src.path());
+            }
+            totalSize(localFile.size());
+            withAuthRetry([&] {
+                m_fileSystem->upload(
+                    localFile.absoluteFilePath(),
+                    pathOf(dest),
+                    flags & KIO::Overwrite,
+                    [&](qint64 current, qint64 total) {
+                        if (total >= 0) {
+                            totalSize(total);
+                        }
+                        processedSize(current);
+                    },
+                    [&] {
+                        return wasKilled();
+                    });
+            });
+            return KIO::WorkerResult::pass();
+        }
+
         if (pathOf(src) == pathOf(dest)) {
             return KIO::WorkerResult::fail(KIO::ERR_FILE_ALREADY_EXIST, dest.path());
         }
