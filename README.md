@@ -128,8 +128,9 @@ than hidden:
 - **Kilobyte-granularity sizes.** Listings report `Size` in floored kilobytes.
   `get()` reports the exact size from `Content-Length` when downloading.
 - **No overwrite on upload.** Uploading an existing name creates
-  `name(1).ext`. The worker implements KIO's overwrite semantics as
-  delete-then-upload, but only when KIO passes the `Overwrite` flag.
+  `name(1).ext`. When KIO passes the `Overwrite` flag, the worker uploads the
+  replacement under a temporary name, deletes the old file only after the
+  upload succeeded, and then renames the new file into place.
 - **No server-side copy.** `copy()` downloads the file to a temporary file and
   uploads it again. Directory copies are delegated to KIO's recursive copy
   machinery.

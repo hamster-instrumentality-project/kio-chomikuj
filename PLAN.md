@@ -9,9 +9,11 @@ Implemented in this repository:
   retry/backoff and 401 re-login handling
 - KIO auth dialog / cached authentication (KWallet-backed), device id config
 - `listDir`, `stat`, `mimetype`, `get`
-- `put` (delete-then-upload for `Overwrite`), `mkdir`, `rename`/move, `del`
-  with non-recursive-delete safety
+- `put` (crash-safe replacement for `Overwrite`), `mkdir`, `rename`/move,
+  `del` with non-recursive-delete safety
 - server-side-copy emulation via download + upload in `copy()`
+- crash-safe overwrite: upload the replacement first, then delete the old file
+  and rename the new one into place
 - public-account browsing (`chomikuj://otheruser/`), read-only by construction
 - password-protected folder prompts and automatic reopen
 - CRC32 + 512 KiB chunked upload with reconciliation after ambiguous failures

@@ -10,6 +10,8 @@
 
 #include <QDateTime>
 #include <QStringList>
+#include <QThread>
+#include <QUuid>
 
 #include <KIO/Global>
 
@@ -53,6 +55,22 @@ QString normalizedPath(const QString &path)
         return QStringLiteral("/");
     }
     return QLatin1Char('/') + segments.join(QLatin1Char('/'));
+}
+
+QString temporaryUploadName(const QString &name)
+{
+    QString base;
+    QString extension;
+    splitName(name, &base, &extension);
+    const QString suffix = QStringLiteral(".__kio_tmp_%1")
+                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8));
+    if (extension.isEmpty()) {
+        // Do not introduce a dot: the server would treat everything after it
+        // as the file extension and the later rename could keep that suffix.
+        return base + QStringLiteral("__kio_tmp_%1")
+                           .arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8));
+    }
+    return base + suffix + QLatin1Char('.') + extension;
 }
 
 std::optional<Entry> findChildOptional(const QList<Entry> &entries, const QString &name)
@@ -222,11 +240,44 @@ void ChomikujFileSystem::upload(const QString &localPath, const QString &destina
             throw Error(KIO::ERR_FILE_ALREADY_EXIST,
                         QStringLiteral("“%1” already exists").arg(name));
         }
-        m_client.deleteItems({existing->id}, {});
-        invalidate(parentId);
     }
 
-    m_client.uploadFile(localPath, parentId, name, progress, cancelled);
+    if (!existing.has_value()) {
+        m_client.uploadFile(localPath, parentId, name, progress, cancelled);
+        clearCache();
+        return;
+    }
+
+    // Upload under a temporary name first, then replace the existing file.
+    // This keeps the old file intact if the upload itself fails.
+    const QString temporaryName = temporaryUploadName(name);
+    m_client.uploadFile(localPath, parentId, temporaryName, progress, cancelled);
+
+    std::optional<Entry> temporaryEntry;
+    for (int attempt = 0; attempt < 10 && !temporaryEntry.has_value(); ++attempt) {
+        if (attempt > 0) {
+            QThread::msleep(200);
+        }
+        temporaryEntry = findChildOptional(listFolder(parentId, false), temporaryName);
+    }
+    if (!temporaryEntry.has_value()) {
+        throw Error(KIO::ERR_CANNOT_WRITE,
+                    QStringLiteral("The uploaded replacement file did not appear in the folder"));
+    }
+
+    try {
+        m_client.deleteItems({existing->id}, {});
+    } catch (...) {
+        try {
+            m_client.deleteItems({temporaryEntry->id}, {});
+        } catch (const Error &) {
+        }
+        throw;
+    }
+
+    // If this fails, the new data is still present under the temporary name;
+    // never delete it, so the user does not lose the upload.
+    m_client.changeFileName(temporaryEntry->id, name);
     clearCache();
 }
 

@@ -265,23 +265,64 @@ void FileSystemTest::uploadWithOverwrite()
     file.flush();
 
     Fixture fixture;
+    QString temporaryName;
+    bool deleted = false;
+    bool renamed = false;
+
+    fixture.fake->handler = [&](const Chomikuj::HttpRequest &request) -> Chomikuj::HttpResponse {
+        if (request.url.path() == QLatin1String("/api/v3/folders")) {
+            const QString parent =
+                QUrlQuery(request.url).queryItemValue(QStringLiteral("Parent"));
+            if (parent == QLatin1String("0")) {
+                return jsonResponse(200, listing("{\"Id\":7,\"Name\":\"Music\"}", ""));
+            }
+            QByteArray files = "{\"FileId\":3,\"FileName\":\"existing\","
+                              "\"FileType\":\"bin\",\"Size\":1}";
+            if (!temporaryName.isEmpty()) {
+                QString base;
+                QString extension;
+                Chomikuj::splitName(temporaryName, &base, &extension);
+                files += ",{\"FileId\":99,\"FileName\":\"" + base.toUtf8()
+                    + "\",\"FileType\":\"" + extension.toUtf8() + "\",\"Size\":1}";
+            }
+            return jsonResponse(200, listing("", files));
+        }
+        if (request.url.path() == QLatin1String("/api/v3/files/upload/partialUpload")) {
+            temporaryName = QJsonDocument::fromJson(request.body)
+                                .object()
+                                .value(QStringLiteral("Name"))
+                                .toString();
+            return jsonResponse(200, "{\"Code\":0,\"Url\":\"\",\"Chunk\":0,"
+                                       "\"UploadCompleted\":true}");
+        }
+        if (request.url.path() == QLatin1String("/api/v3/files/delete")) {
+            const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+            if (body.value(QStringLiteral("Files")).toArray().at(0).toInt() != 3) {
+                return jsonResponse(400, "{\"Message\":\"wrong delete target\"}");
+            }
+            deleted = true;
+            return jsonResponse(200, "{}");
+        }
+        if (request.url.path() == QLatin1String("/api/v3/files/changeName")) {
+            const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+            if (body.value(QStringLiteral("FileId")).toInt() != 99
+                || body.value(QStringLiteral("FileName")).toString()
+                    != QLatin1String("existing.bin")) {
+                return jsonResponse(400, "{\"Message\":\"wrong rename target\"}");
+            }
+            renamed = true;
+            return jsonResponse(200, "{\"Code\":0}");
+        }
+        return jsonResponse(500, "{}");
+    };
+
     fixture.fs->upload(file.fileName(), QStringLiteral("/Music/existing.bin"),
                        true, nullptr, [] { return false; });
 
-    bool deleted = false;
-    bool negotiated = false;
-    for (const auto &request : fixture.fake->requests) {
-        if (request.url.path() == QLatin1String("/api/v3/files/delete")) {
-            const QJsonObject body = QJsonDocument::fromJson(request.body).object();
-            QCOMPARE(body.value(QStringLiteral("Files")).toArray().at(0).toInt(), 3);
-            deleted = true;
-        }
-        if (request.url.path() == QLatin1String("/api/v3/files/upload/partialUpload")) {
-            negotiated = true;
-        }
-    }
+    QVERIFY(temporaryName.startsWith(QLatin1String("existing.__kio_tmp_")));
+    QVERIFY(temporaryName.endsWith(QLatin1String(".bin")));
     QVERIFY(deleted);
-    QVERIFY(negotiated);
+    QVERIFY(renamed);
 }
 
 void FileSystemTest::readOnlyAccount()
