@@ -12,10 +12,14 @@ Implemented in this repository:
 - `put` (delete-then-upload for `Overwrite`), `mkdir`, `rename`/move, `del`
   with non-recursive-delete safety
 - server-side-copy emulation via download + upload in `copy()`
+- public-account browsing (`chomikuj://otheruser/`), read-only by construction
+- password-protected folder prompts and automatic reopen
 - CRC32 + 512 KiB chunked upload with reconciliation after ambiguous failures
+- listing cache with a short TTL so reload works after external changes
 - offline unit tests, plugin-registration test and a gated self-cleaning live
-  check
-- a local `kioclient` smoke test against a mock server has been run manually
+  check (own account read/write and public-account listing)
+- a local `kioclient` smoke test against a mock server has been run manually,
+  plus a live `kioclient` read/write smoke test on a throwaway folder
 
 Decisions taken for this implementation (the recommended defaults from the
 original plan): KF6 only, account selected by URL host, full read/write,
@@ -24,8 +28,8 @@ KIO explicitly passes `Overwrite`.
 
 Still open / intentionally deferred:
 
-- public-account browsing (`chomikuj://otheruser/`) and folder-password prompts
-- upload resume through KIO `put`
+- upload resume through KIO `put` (server-side resume already works inside a
+  single put once the file has been read)
 - a dedicated KCM/account manager
 - a KIO docbook/man page and packaged translations
 

@@ -196,6 +196,7 @@ QList<Entry> ChomikujClient::listFolder(qint64 parentId, qint64 accountId)
             entry.isDir = true;
             entry.isHidden = folder.isHidden;
             entry.hasPassword = folder.hasPassword;
+            entry.isAdult = folder.isAdult;
             entry.accountId = folder.accountId;
             entries.append(entry);
         }

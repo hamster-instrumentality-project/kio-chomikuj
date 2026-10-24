@@ -8,6 +8,7 @@
 #include "chomikujclient.h"
 #include "chomikujerror.h"
 
+#include <QDateTime>
 #include <QStringList>
 
 #include <KIO/Global>
@@ -249,10 +250,11 @@ void ChomikujFileSystem::clearCache()
 
 QList<Entry> ChomikujFileSystem::listFolder(qint64 folderId, bool useCache)
 {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (useCache) {
         const auto cached = m_cache.constFind(folderId);
-        if (cached != m_cache.cend()) {
-            return *cached;
+        if (cached != m_cache.cend() && now - cached->fetchedAt < 5000) {
+            return cached->entries;
         }
     }
 
@@ -270,7 +272,7 @@ QList<Entry> ChomikujFileSystem::listFolder(qint64 folderId, bool useCache)
         }
     }
 
-    m_cache.insert(folderId, entries);
+    m_cache.insert(folderId, CachedListing{entries, now});
     return entries;
 }
 

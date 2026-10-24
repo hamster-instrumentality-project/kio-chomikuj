@@ -37,6 +37,18 @@ chomikuj://myaccount/Music/song.mp3
 configured yet, open `chomikuj://<account>/` once; the account is remembered.
 Credentials are requested through the standard KIO password dialog; if
 "remember" is enabled, KIO stores them in KWallet.
+
+Browsing another user's public tree is read-only:
+
+```
+chomikuj://someuser/
+chomikuj://someuser/SomeFolder
+```
+
+The worker signs in with your own configured account and resolves `someuser`
+through the account search endpoint. Sign in to your own account once before
+using public-account URLs. Password-protected public folders prompt for the
+folder password and reopen automatically.
 Passwords and session keys are never written to plain-text configuration files.
 
 The device id used in the `User-Agent` and the last account are stored in
@@ -93,6 +105,9 @@ export CHOMIKUJ_PASSWORD='your_password'
 
 # also run a self-cleaning create/upload/rename/move/download/delete round-trip
 ./build/bin/chomikuj_live --write
+
+# read-only public-account listing check
+./build/bin/chomikuj_live --public someuser
 ```
 
 For local integration testing, the worker honours:
@@ -127,8 +142,9 @@ than hidden:
 - **No resume on upload.** Chunked upload is resumable at the protocol level,
   but the KIO `put` implementation reads the stream into a temporary file and
   uploads it from the beginning in the current version.
-- **No public-account browsing yet.** Only the authenticated account's tree is
-  exposed. `AccountId` browsing and folder-password prompts are planned.
+- **Public accounts are read-only.** `chomikuj://otheruser/` works for public
+  trees, but write operations are refused locally before any API call.
+- **Folder passwords** are supported through the standard KIO password dialog.
 
 ## Implementation
 

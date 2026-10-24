@@ -379,7 +379,13 @@ KIO::UDSEntry ChomikujWorker::udsEntry(const Entry &entry, const QUrl &url) cons
             access |= S_IWUSR | S_IWGRP;
         }
         uds.fastInsert(KIO::UDSEntry::UDS_ACCESS, access);
-        uds.fastInsert(KIO::UDSEntry::UDS_ICON_NAME, QStringLiteral("folder"));
+        QString icon = QStringLiteral("folder");
+        if (entry.hasPassword) {
+            icon = QStringLiteral("folder-locked");
+        } else if (entry.isAdult) {
+            icon = QStringLiteral("folder-red");
+        }
+        uds.fastInsert(KIO::UDSEntry::UDS_ICON_NAME, icon);
         if (entry.isHidden) {
             uds.fastInsert(KIO::UDSEntry::UDS_HIDDEN, 1);
         }

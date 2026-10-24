@@ -45,6 +45,7 @@ struct Entry
     bool isDir = false;
     bool isHidden = false;
     bool hasPassword = false;
+    bool isAdult = false;
     qint64 accountId = 0;
 };
 

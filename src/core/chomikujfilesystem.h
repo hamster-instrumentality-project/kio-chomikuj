@@ -51,6 +51,11 @@ public:
     void clearCache();
 
 private:
+    struct CachedListing {
+        QList<Entry> entries;
+        qint64 fetchedAt = 0;
+    };
+
     QList<Entry> listFolder(qint64 folderId, bool useCache = true);
     Entry findChild(qint64 parentId, const QString &name, bool useCache = true);
     qint64 resolveFolder(const QString &path);
@@ -65,7 +70,7 @@ private:
     qint64 m_ownerAccountId = 0;
     bool m_readOnly = false;
     PasswordProvider m_passwordProvider;
-    QHash<qint64, QList<Entry>> m_cache;
+    QHash<qint64, CachedListing> m_cache;
 };
 
 } // namespace Chomikuj
