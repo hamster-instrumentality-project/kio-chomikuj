@@ -64,6 +64,7 @@ target_compile_definitions(chomikujcore PRIVATE QT_NO_CAST_FROM_ASCII)
 kcoreaddons_add_plugin(kio_chomikuj
     SOURCES
         src/worker/chomikujworker.cpp
+        src/worker/chomikuj.json
     INSTALL_NAMESPACE kf6/kio
 )
 target_link_libraries(kio_chomikuj

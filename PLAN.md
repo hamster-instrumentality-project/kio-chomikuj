@@ -21,6 +21,8 @@ Implemented in this repository:
   optimistic completion when a fully sent final chunk times out during
   server-side finalization
 - listing cache with a short TTL so reload works after external changes
+- up to five concurrent worker instances per account, so browsing does not
+  block behind an in-progress upload
 - a System Settings control module for default account, device name and device
   ID
 - a KIO handbook under `kioworker6/chomikuj/` and a Polish message catalogue

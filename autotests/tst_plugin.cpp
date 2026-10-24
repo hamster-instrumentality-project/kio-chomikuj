@@ -24,6 +24,8 @@ void PluginTest::protocolIsRegistered()
     QCOMPARE(KProtocolInfo::docPath(QStringLiteral("chomikuj")),
              QStringLiteral("kioworker6/chomikuj/index.html"));
     QVERIFY(KProtocolManager::canCopyFromFile(QUrl(QStringLiteral("chomikuj://account/"))));
+    QVERIFY(KProtocolInfo::maxWorkers(QStringLiteral("chomikuj")) > 1);
+    QVERIFY(KProtocolInfo::maxWorkersPerHost(QStringLiteral("chomikuj")) > 1);
 }
 
 QTEST_GUILESS_MAIN(PluginTest)

@@ -14,6 +14,8 @@ KIO-aware applications:
 - rename and move files/folders
 - delete files and folders (including recursive delete)
 - report MIME types and approximate sizes
+- keep browsing responsive while an upload or download is running by allowing
+  multiple KIO worker instances per account
 
 > This is an independent, unofficial client. Use it only with your own account
 > and at your own risk. The protocol is reverse-engineered and may change when

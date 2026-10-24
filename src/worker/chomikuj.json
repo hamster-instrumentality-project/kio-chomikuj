@@ -10,6 +10,8 @@
             "deleting": true,
             "input": "none",
             "linking": false,
+            "maxInstances": 5,
+            "maxInstancesPerHost": 5,
             "listing": [
                 "Name",
                 "Type",
