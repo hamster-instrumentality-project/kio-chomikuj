@@ -20,6 +20,7 @@ Implemented in this repository:
 - listing cache with a short TTL so reload works after external changes
 - a System Settings control module for default account, device name and device
   ID
+- a KIO handbook under `kioworker6/chomikuj/` and a Polish message catalogue
 - offline unit tests, plugin-registration test and a gated self-cleaning live
   check (own account read/write and public-account listing)
 - a local `kioclient` smoke test against a mock server has been run manually,

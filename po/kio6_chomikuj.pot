@@ -1,0 +1,73 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kio-chomikuj package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: kio-chomikuj 0.2.0\n"
+"Report-Msgid-Bugs-To: https://github.com/\n"
+"POT-Creation-Date: 2026-10-24 17:34+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/kcm/chomikujkcm.cpp:31
+msgid "Chomikuj account name"
+msgstr ""
+
+#: src/kcm/chomikujkcm.cpp:32
+msgid "Default account:"
+msgstr ""
+
+#: src/kcm/chomikujkcm.cpp:36
+msgid "Device name:"
+msgstr ""
+
+#: src/kcm/chomikujkcm.cpp:43
+msgid "Generate new ID"
+msgstr ""
+
+#: src/kcm/chomikujkcm.cpp:46
+msgid "Device ID:"
+msgstr ""
+
+#: src/kcm/chomikujkcm.cpp:49
+msgid ""
+"The account password is stored through KIO/KWallet, not in this "
+"configuration file."
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:208 src/worker/chomikujworker.cpp:324
+msgid "Chomikuj.pl"
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:220
+msgid "Enter your Chomikuj.pl account name and password"
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:223 src/worker/chomikujworker.cpp:232
+#: src/worker/chomikujworker.cpp:241 src/worker/chomikujworker.cpp:253
+msgid "Authentication cancelled"
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:228 src/worker/chomikujworker.cpp:238
+msgid "Enter the password for Chomikuj account %1"
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:251
+msgid "The password for “%1” was rejected."
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:305
+msgid "No Chomikuj account named “%1” was found"
+msgstr ""
+
+#: src/worker/chomikujworker.cpp:328
+msgid "Enter the password for the protected folder"
+msgstr ""

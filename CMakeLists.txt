@@ -77,6 +77,9 @@ set_target_properties(kio_chomikuj PROPERTIES OUTPUT_NAME "chomikuj")
 add_subdirectory(src/kcm)
 add_subdirectory(doc)
 
+find_package(Gettext REQUIRED)
+ki18n_install(po)
+
 if (BUILD_TESTING)
     add_subdirectory(autotests)
 endif ()

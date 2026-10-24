@@ -1,0 +1,59 @@
+# Polish translation for kio-chomikuj.
+# SPDX-FileCopyrightText: 2026 kio-chomikuj contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+msgid ""
+msgstr ""
+"Project-Id-Version: kio-chomikuj 0.2.0\n"
+"Report-Msgid-Bugs-To: https://github.com/\n"
+"POT-Creation-Date: 2026-10-24 17:34+0200\n"
+"PO-Revision-Date: 2026-10-24 17:40+0200\n"
+"Last-Translator: kio-chomikuj contributors\n"
+"Language-Team: Polish <pl@li.org>\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+msgid "Chomikuj account name"
+msgstr "Nazwa konta Chomikuj"
+
+msgid "Default account:"
+msgstr "Domyślne konto:"
+
+msgid "Device name:"
+msgstr "Nazwa urządzenia:"
+
+msgid "Generate new ID"
+msgstr "Wygeneruj nowy identyfikator"
+
+msgid "Device ID:"
+msgstr "Identyfikator urządzenia:"
+
+msgid ""
+"The account password is stored through KIO/KWallet, not in this "
+"configuration file."
+msgstr ""
+"Hasło konta jest przechowywane przez KIO/KWallet, a nie w tym pliku "
+"konfiguracji."
+
+msgid "Chomikuj.pl"
+msgstr "Chomikuj.pl"
+
+msgid "Enter your Chomikuj.pl account name and password"
+msgstr "Podaj nazwę i hasło konta Chomikuj.pl"
+
+msgid "Authentication cancelled"
+msgstr "Uwierzytelnianie anulowane"
+
+msgid "Enter the password for Chomikuj account %1"
+msgstr "Podaj hasło do konta Chomikuj %1"
+
+msgid "The password for “%1” was rejected."
+msgstr "Hasło dla „%1” zostało odrzucone."
+
+msgid "No Chomikuj account named “%1” was found"
+msgstr "Nie znaleziono konta Chomikuj o nazwie „%1”"
+
+msgid "Enter the password for the protected folder"
+msgstr "Podaj hasło do chronionego folderu"
