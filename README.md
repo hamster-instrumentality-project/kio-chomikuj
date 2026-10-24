@@ -133,13 +133,34 @@ kioclient ls "chomikuj://your-account/"
 
 # The control module should be listed
 kcmshell6 --list | grep kcm_chomikuj
+
+# The plugin advertises the local-file copy path used for upload progress
+ctest --test-dir build -R tst_plugin --output-on-failure
 ```
 
 After installing, restart applications that cache KIO protocol information
 (Dolphin, file dialogs, etc.) and, if necessary, log out and back in so the KIO
-daemon picks up the new plugin. The control module appears in System Settings
-under **Network → Chomikuj.pl**, where the default account, device name and
-device ID can be configured.
+daemon (`kiod6`) picks up the new plugin. The control module appears in System
+Settings under **Network → Chomikuj.pl**, where the default account, device name
+and device ID can be configured.
+
+### Upload progress troubleshooting
+
+For a local file copied to Chomikuj, progress should advance with the actual
+chunked upload. If it races to 100% almost immediately and then sits still, KIO
+is still using the old data-pump path, where the progress bar tracks reading the
+local source file instead. Check that:
+
+- the current build is actually installed or selected through `QT_PLUGIN_PATH`;
+- no older `chomikuj.so` is earlier in the plugin path;
+- `kiod6` and the file manager were restarted after installing;
+- `ctest --test-dir build -R tst_plugin` passes, which verifies that
+  `KProtocolManager::canCopyFromFile()` is true for `chomikuj://`.
+
+KIO's `copyFromFile` optimisation only applies when the source is a `file://`
+URL. Copying from SMB, MTP, archives or other workers still uses KIO's data
+pump, whose progress reflects reading the source rather than the Chomikuj
+upload.
 
 ## Testing
 
