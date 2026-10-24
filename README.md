@@ -223,9 +223,10 @@ than hidden:
   `chmod`, `chown`, `setModificationTime` and symlinks are unsupported.
 - **Recursive folder delete is server-side.** The worker refuses to delete a
   non-empty folder unless KIO sends `recurse=true`.
-- **No resume on upload.** Chunked upload is resumable at the protocol level,
-  but the KIO `put` implementation reads the stream into a temporary file and
-  uploads it from the beginning in the current version.
+- **No KIO-level upload resume.** The uploader itself resumes from the
+  server's reported chunk offset after ambiguous chunk failures, and treats a
+  fully sent final chunk as submitted while the server finalizes it. A new
+  KIO `put` operation still reads the source stream from the beginning.
 - **Public accounts are read-only.** `chomikuj://otheruser/` works for public
   trees, but write operations are refused locally before any API call.
 - **Folder passwords** are supported through the standard KIO password dialog.

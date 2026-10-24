@@ -31,6 +31,10 @@ struct HttpResponse
     QMap<QByteArray, QByteArray> headers;
     QByteArray body;
     QString errorString;
+    // True when the complete request body was handed to the transport even if
+    // no response was received (for example during final upload-finalization
+    // timeouts).
+    bool requestBodySent = false;
 
     QByteArray header(const QByteArray &name) const;
     bool isNetworkError() const

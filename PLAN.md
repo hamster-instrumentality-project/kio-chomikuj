@@ -17,7 +17,9 @@ Implemented in this repository:
 - public-account browsing (`chomikuj://otheruser/`), read-only by construction
 - password-protected folder prompts and automatic reopen
 - CRC32 + 512 KiB chunked upload with reconciliation after ambiguous failures,
-  exponential jittered backoff (500 ms to 8 s) and bounded recovery
+  exponential jittered backoff (500 ms to 8 s), bounded recovery, and
+  optimistic completion when a fully sent final chunk times out during
+  server-side finalization
 - listing cache with a short TTL so reload works after external changes
 - a System Settings control module for default account, device name and device
   ID

@@ -26,6 +26,7 @@ namespace
 constexpr int s_maxReconcileAttempts = 5;
 constexpr int s_maxReconcilePolls = 5;
 constexpr int s_maxTerminalResponses = 2;
+constexpr int s_chunkTimeoutMs = 30000;
 
 bool isCancelled(const std::function<bool()> &cancelled)
 {
@@ -49,13 +50,18 @@ QByteArray boundary()
     return "***" + QUuid::createUuid().toString(QUuid::WithoutBraces).toLatin1() + "***";
 }
 
-int sendChunk(ChomikujClient &client,
-              const QString &url,
-              const QString &remoteName,
-              const QByteArray &data,
-              qint64 start,
-              qint64 end,
-              const std::function<bool()> &cancelled)
+struct ChunkResult {
+    int status = 0;
+    bool bodySent = false;
+};
+
+ChunkResult sendChunk(ChomikujClient &client,
+                      const QString &url,
+                      const QString &remoteName,
+                      const QByteArray &data,
+                      qint64 start,
+                      qint64 end,
+                      const std::function<bool()> &cancelled)
 {
     throwIfCancelled(cancelled);
 
@@ -75,7 +81,7 @@ int sendChunk(ChomikujClient &client,
     request.method = QByteArrayLiteral("POST");
     request.url = QUrl(url);
     request.body = body;
-    request.timeoutMs = 120000;
+    request.timeoutMs = s_chunkTimeoutMs;
     request.cancelled = cancelled;
     request.headers.insert("User-Agent", client.userAgent().toUtf8());
     request.headers.insert("Connection", "Keep-Alive");
@@ -90,9 +96,9 @@ int sendChunk(ChomikujClient &client,
         if (isCancelled(cancelled)) {
             throwIfCancelled(cancelled);
         }
-        return 0;
+        return {0, response.requestBodySent};
     }
-    return response.status;
+    return {response.status, response.requestBodySent};
 }
 
 bool uploadPresent(ChomikujClient &client, qint64 folderId,
@@ -146,9 +152,16 @@ bool reconcile(ChomikujClient &client,
         UploadSlot slot;
         try {
             slot = client.negotiateUpload(remoteName, size, folderId, crc32Hex);
-        } catch (const Error &) {
+        } catch (const Error &error) {
             if (isCancelled(cancelled)) {
                 throwIfCancelled(cancelled);
+            }
+            const int status = error.httpStatus();
+            const bool permanent = error.businessCode() > 0
+                || (status >= 400 && status < 500
+                    && status != 408 && status != 409 && status != 429);
+            if (permanent) {
+                throw;
             }
             continue;
         }
@@ -279,7 +292,8 @@ void uploadFile(ChomikujClient &client,
 
         const qint64 start = offset;
         const qint64 end = complete ? start : start + data.size();
-        const int status = sendChunk(client, url, remoteName, data, start, end, cancelled);
+        const ChunkResult chunkResult = sendChunk(client, url, remoteName, data, start, end, cancelled);
+        const int status = chunkResult.status;
 
         if (status == 200) {
             if (progress) {
@@ -313,6 +327,16 @@ void uploadFile(ChomikujClient &client,
             throwIfCancelled(cancelled);
             const bool finalChunk = end >= size;
             const qint64 confirmed = offset;
+
+            // A final chunk whose body was fully handed to the transport is
+            // submitted even if the response timed out.  The server may take
+            // minutes to finalize a large file after accepting the last byte.
+            if (finalChunk && status == 0 && chunkResult.bodySent) {
+                if (progress) {
+                    progress(size, size);
+                }
+                return;
+            }
 
             if (finalChunk && status != 0
                 && uploadPresent(client, folderId, remoteName, size, cancelled)) {

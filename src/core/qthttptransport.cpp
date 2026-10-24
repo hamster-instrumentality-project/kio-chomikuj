@@ -107,6 +107,7 @@ HttpResponse QtHttpTransport::send(const HttpRequest &request)
     }
 
     HttpResponse response = responseFromReply(reply, body, errorString);
+    response.requestBodySent = reply->bytesToWrite() == 0;
     delete reply;
     return response;
 }
@@ -198,6 +199,7 @@ HttpResponse QtHttpTransport::sendStreaming(const HttpRequest &request,
     }
 
     HttpResponse response = responseFromReply(reply, {}, errorString);
+    response.requestBodySent = true;
     delete reply;
     return response;
 }
