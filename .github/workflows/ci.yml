@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel cmake ninja extra-cmake-modules git \
+            qt6-base kio ki18n kcmutils kdoctools gettext \
+            appstream python zlib
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: KCM smoke test
+        run: |
+          QT_PLUGIN_PATH="$PWD/build/bin" QT_QPA_PLATFORM=offscreen \
+            kcmshell6 --smoke-test kcm_chomikuj
+
+      - name: Install
+        run: |
+          cmake --install build --prefix /tmp/kio-chomikuj-install
+          test -f /tmp/kio-chomikuj-install/lib/qt6/plugins/kf6/kio/chomikuj.so
+          test -f /tmp/kio-chomikuj-install/lib/qt6/plugins/plasma/kcms/systemsettings_qwidgets/kcm_chomikuj.so
+          test -f /tmp/kio-chomikuj-install/share/locale/pl/LC_MESSAGES/kio6_chomikuj.mo
