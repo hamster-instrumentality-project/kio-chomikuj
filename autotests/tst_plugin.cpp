@@ -4,6 +4,7 @@
  */
 
 #include <KProtocolInfo>
+#include <KProtocolManager>
 
 #include <QtTest>
 
@@ -22,6 +23,7 @@ void PluginTest::protocolIsRegistered()
     QCOMPARE(KProtocolInfo::icon(QStringLiteral("chomikuj")), QStringLiteral("folder-remote"));
     QCOMPARE(KProtocolInfo::docPath(QStringLiteral("chomikuj")),
              QStringLiteral("kioworker6/chomikuj/index.html"));
+    QVERIFY(KProtocolManager::canCopyFromFile(QUrl(QStringLiteral("chomikuj://account/"))));
 }
 
 QTEST_GUILESS_MAIN(PluginTest)
