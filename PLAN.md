@@ -21,6 +21,14 @@ Implemented in this repository:
   optimistic completion when a fully sent final chunk times out during
   server-side finalization
 - listing cache with a short TTL so reload works after external changes
+- random-access reads (`open`/`read`/`seek`/`close`) through HTTP `Range`,
+  exact `Content-Length`/`Content-Range` sizes, signed-URL refresh and EOF
+  handling
+- a read-only `chomikujstream://` protocol for kio-fuse/mpv/VLC, kept separate
+  from `chomikuj://` so kio-fuse writes keep using its cache-based path
+- per-video `UDS_TARGET_URL` routing (`TargetUrl=off|read-only|all`) and a
+  `kio-chomikuj-play` launcher with a Dolphin service menu
+- KIO download resume via `range-start`
 - up to five concurrent worker instances per account, so browsing does not
   block behind an in-progress upload
 - a System Settings control module for default account, device name and device
@@ -195,9 +203,10 @@ Token = MD5( (path + ["?" + query] + body + SECRET).substring(1) )
 - `get`: `GET /files/download?FileId=<id>` → `FileUrl`, then stream the raw URL.
   Set `mimeType()` and `totalSize()` before data. Refresh the signed URL once on
   401/403/404/410. Check `wasKilled()` while streaming.
-- Range/resume: protocol supports `Range: bytes=N-`; implement if KIO's
-  `range-start`/`canResume()` semantics verify cleanly, otherwise full download
-  in v1.
+- Range/resume: protocol supports `Range: bytes=N-`; `get()` honours KIO's
+  `range-start` metadata and verifies a one-byte range before streaming a
+  resumed transfer, so a server that ignores Range produces
+  `ERR_CANNOT_RESUME` instead of wrong bytes.
 - UDS entries:
   - `UDS_NAME`/`UDS_DISPLAY_NAME`: `FileName` + `.` + `FileType`, with
     normalisation for the rename quirk (avoid `name.ext.ext`)
@@ -344,6 +353,14 @@ using `kcoreaddons_add_plugin(... INSTALL_NAMESPACE kf6/kio)`.
 - **Filesystem**: path resolution, parent listing for `stat`, pagination,
   rename/move/delete argument shapes, overwrite safety, recursive-delete
   guard, cache invalidation.
+- **RangeReader**: HEAD/Range exact-size probes, closed Range requests,
+  `Content-Range` validation, 200-at-offset rejection, URL refresh,
+  bounded retries, EOF/short reads, cancellation.
+- **KIO FileJob integration**: the kio-fuse open/seek/read/close pattern
+  against a local mock server, including exact `totalSize`, EOF, read-only
+  open rejection and `UDS_TARGET_URL` routing.
+- **Launcher**: `chomikuj://` to `chomikujstream://` rewriting and desktop
+  integration.
 
 ### Local integration
 
@@ -374,6 +391,10 @@ rename/extension behaviour, quota units, `ApiKey` expiry, rate limiting.
 | `Size` is floored KB, so small files show 0 and sizes are approximate | Document; use `Content-Length` for `totalSize` in `get`; do not promise byte-exact listing sizes |
 | No timestamps anywhere | Omit time UDS fields; document that Dolphin date columns stay empty |
 | Upload never overwrites | Delete-then-upload only when KIO passes `Overwrite`; otherwise fail with `ERR_FILE_ALREADY_EXIST` |
+| kio-fuse switches the whole protocol to FileJob when `opening`/`truncating` are set | Keep those flags on the read-only `chomikujstream` protocol only; leave `chomikuj` on the cache-based write path |
+| kio-fuse opens a new FileJob per FUSE read | Cache signed URLs, exact sizes and path resolution per worker; measure Range request count during playback |
+| Video files routed through `UDS_TARGET_URL` become FileJob-based | Default to `TargetUrl=read-only`; make `all` opt-in and document the video-file write limitation |
+| kio-fuse requires `truncating` for FileJob | Advertise it on the read-only streaming protocol; `truncate()` still fails safely |
 | Folder delete cascades server-side | Check emptiness for non-recursive `del`; only cascade when `recurse=true` |
 | Signed download URLs are single-use / can expire | Re-request `/files/download` and retry once on 401/403/404/410 |
 | `ApiKey` expiry semantics unverified | Re-login once on 401; if login fails, surface `ERR_CANNOT_LOGIN` |

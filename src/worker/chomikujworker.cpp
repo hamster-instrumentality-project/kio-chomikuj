@@ -8,10 +8,13 @@
 #include "core/chomikujfilesystem.h"
 #include "core/chomikujtypes.h"
 #include "core/qthttptransport.h"
+#include "core/rangereader.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QMimeDatabase>
 #include <QStandardPaths>
 #include <QTemporaryFile>
@@ -27,6 +30,7 @@
 
 #include <sys/stat.h>
 
+#include <limits>
 #include <memory>
 
 using Chomikuj::AccountSearchItem;
@@ -34,6 +38,7 @@ using Chomikuj::ChomikujClient;
 using Chomikuj::ChomikujFileSystem;
 using Chomikuj::Entry;
 using Chomikuj::Error;
+using Chomikuj::RangeReader;
 
 namespace {
 QString configString(const char *key, const QString &defaultValue = {})
@@ -41,6 +46,61 @@ QString configString(const char *key, const QString &defaultValue = {})
     const KConfigGroup group(KSharedConfig::openConfig(QStringLiteral("chomikujrc")),
                              QStringLiteral("General"));
     return group.readEntry(QString::fromLatin1(key), defaultValue);
+}
+
+QString streamingConfigString(const char *key, const QString &defaultValue)
+{
+    QString suffix;
+    const QString camel = QString::fromLatin1(key);
+    for (const QChar character : camel) {
+        if (character.isUpper() && !suffix.isEmpty()) {
+            suffix += QLatin1Char('_');
+        }
+        suffix += character.toUpper();
+    }
+    const QString environmentKey = QStringLiteral("CHOMIKUJ_STREAMING_") + suffix;
+    const QString environmentValue = qEnvironmentVariable(environmentKey.toUtf8().constData());
+    if (!environmentValue.isEmpty()) {
+        return environmentValue;
+    }
+
+    const KConfigGroup group(KSharedConfig::openConfig(QStringLiteral("chomikujrc")),
+                             QStringLiteral("Streaming"));
+    return group.readEntry(QString::fromLatin1(key), defaultValue);
+}
+
+QString streamingTargetUrlPolicy()
+{
+    const QString value = streamingConfigString("TargetUrl", QStringLiteral("read-only"));
+    return value.trimmed().toLower();
+}
+
+QUrl childUrl(const QUrl &directoryUrl, const QString &name)
+{
+    QUrl result = directoryUrl;
+    QString path = result.path();
+    if (path.isEmpty()) {
+        path = QStringLiteral("/");
+    }
+    if (!path.endsWith(QLatin1Char('/'))) {
+        path += QLatin1Char('/');
+    }
+    path += name;
+    result.setPath(path);
+    result.setQuery(QString());
+    result.setFragment(QString());
+    return result;
+}
+
+bool isVideoEntry(const Entry &entry, const QString &mimeType)
+{
+    if (entry.isDir) {
+        return false;
+    }
+    if (entry.mediaType.compare(QLatin1String("Video"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+    return mimeType.startsWith(QLatin1String("video/"));
 }
 
 void writeConfigString(const char *key, const QString &value)
@@ -85,10 +145,17 @@ public:
                  const QString &pass) override;
 
     KIO::WorkerResult openConnection() override;
+    void closeConnection() override;
     KIO::WorkerResult listDir(const QUrl &url) override;
     KIO::WorkerResult stat(const QUrl &url) override;
     KIO::WorkerResult mimetype(const QUrl &url) override;
     KIO::WorkerResult get(const QUrl &url) override;
+    KIO::WorkerResult open(const QUrl &url, QIODevice::OpenMode mode) override;
+    KIO::WorkerResult read(KIO::filesize_t size) override;
+    KIO::WorkerResult write(const QByteArray &data) override;
+    KIO::WorkerResult seek(KIO::filesize_t offset) override;
+    KIO::WorkerResult truncate(KIO::filesize_t size) override;
+    KIO::WorkerResult close() override;
     KIO::WorkerResult put(const QUrl &url, int permissions, KIO::JobFlags flags) override;
     KIO::WorkerResult mkdir(const QUrl &url, int permissions) override;
     KIO::WorkerResult rename(const QUrl &src, const QUrl &dest, KIO::JobFlags flags) override;
@@ -98,18 +165,26 @@ public:
     KIO::WorkerResult fileSystemFreeSpace(const QUrl &url) override;
 
 private:
-    void ensureAuthenticated(bool forceReLogin = false, const QString &errorMessage = {});
+    void ensureAuthenticated(bool forceReLogin = false, const QString &errorMessage = {},
+                             bool allowPrompt = true);
     void configureFileSystem();
     bool promptFolderPassword(qint64 folderId, QString *password, const QString &errorMessage);
     ChomikujClient &client();
+    QString downloadUrlFor(qint64 fileId, bool forceRefresh = false);
+    bool shouldUseStreamingTarget(const Entry &entry, const QString &mimeType) const;
+    bool isStreamingProtocol() const;
+    void resetOpenState();
+    void clearReadAhead();
 
     KIO::UDSEntry udsEntry(const Entry &entry, const QUrl &url) const;
     KIO::UDSEntry dotEntry() const;
 
     template<typename Function>
-    auto withAuthRetry(Function &&function) -> decltype(function())
+    auto withAuthRetry(Function &&function, bool allowPrompt = true) -> decltype(function())
     {
-        ensureAuthenticated();
+        const bool effectivePrompt = allowPrompt
+            && metaData(QStringLiteral("no-auth-prompt")) != QLatin1String("true");
+        ensureAuthenticated(false, {}, effectivePrompt);
         try {
             return function();
         } catch (const Error &error) {
@@ -118,7 +193,7 @@ private:
             }
             if (error.httpStatus() == 401) {
                 m_client->clearApiKey();
-                ensureAuthenticated(true);
+                ensureAuthenticated(true, {}, effectivePrompt);
                 return function();
             }
             throw;
@@ -136,16 +211,40 @@ private:
                                        QString::fromUtf8(error.what()));
     }
 
+    QString m_protocolName;
     QString m_targetAccount;
     QString m_loginAccount;
     bool m_targetExplicit = false;
+    bool m_nonInteractive = false;
     std::unique_ptr<ChomikujClient> m_client;
     std::unique_ptr<ChomikujFileSystem> m_fileSystem;
+
+    struct CachedUrl {
+        QString url;
+        qint64 fetchedAt = 0;
+    };
+    QHash<qint64, CachedUrl> m_urlCache;
+    QHash<qint64, qint64> m_sizeCache;
+
+    std::unique_ptr<RangeReader> m_rangeReader;
+    qint64 m_openFileId = 0;
+    qint64 m_openOffset = 0;
+    qint64 m_openSize = 0;
+    bool m_openSizeKnown = false;
+    bool m_open = false;
+
+    // kio-fuse opens a new FileJob for every FUSE read.  Keep a small
+    // read-ahead buffer across those opens so sequential playback does not
+    // issue one HTTP Range request per 128-512 KiB read.
+    qint64 m_readAheadFileId = 0;
+    qint64 m_readAheadOffset = 0;
+    QByteArray m_readAhead;
 };
 
 ChomikujWorker::ChomikujWorker(const QByteArray &protocol, const QByteArray &poolSocket,
                                const QByteArray &appSocket)
     : KIO::WorkerBase(protocol, poolSocket, appSocket)
+    , m_protocolName(QString::fromLatin1(protocol))
 {
 }
 
@@ -164,9 +263,35 @@ void ChomikujWorker::setHost(const QString &host, quint16 port, const QString &u
     }
     m_loginAccount.clear();
     m_fileSystem.reset();
+    resetOpenState();
+    clearReadAhead();
+    m_urlCache.clear();
+    m_sizeCache.clear();
     if (m_client) {
         m_client->clearApiKey();
     }
+}
+
+bool ChomikujWorker::isStreamingProtocol() const
+{
+    return m_protocolName == QLatin1String("chomikujstream");
+}
+
+void ChomikujWorker::resetOpenState()
+{
+    m_rangeReader.reset();
+    m_openFileId = 0;
+    m_openOffset = 0;
+    m_openSize = 0;
+    m_openSizeKnown = false;
+    m_open = false;
+}
+
+void ChomikujWorker::clearReadAhead()
+{
+    m_readAheadFileId = 0;
+    m_readAheadOffset = 0;
+    m_readAhead.clear();
 }
 
 ChomikujClient &ChomikujWorker::client()
@@ -179,7 +304,45 @@ ChomikujClient &ChomikujWorker::client()
     return *m_client;
 }
 
-void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &errorMessage)
+QString ChomikujWorker::downloadUrlFor(qint64 fileId, bool forceRefresh)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!forceRefresh) {
+        const auto cached = m_urlCache.constFind(fileId);
+        if (cached != m_urlCache.cend() && !cached->url.isEmpty()
+            && now - cached->fetchedAt < 60000) {
+            return cached->url;
+        }
+    }
+
+    const QString url = withAuthRetry(
+        [&] {
+            return client().downloadUrl(fileId);
+        },
+        false);
+    m_urlCache.insert(fileId, CachedUrl{url, now});
+    return url;
+}
+
+bool ChomikujWorker::shouldUseStreamingTarget(const Entry &entry,
+                                              const QString &mimeType) const
+{
+    if (isStreamingProtocol() || !isVideoEntry(entry, mimeType)) {
+        return false;
+    }
+
+    const QString policy = streamingTargetUrlPolicy();
+    if (policy == QLatin1String("all")) {
+        return true;
+    }
+    if (policy == QLatin1String("read-only")) {
+        return m_fileSystem && m_fileSystem->isReadOnly();
+    }
+    return false;
+}
+
+void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &errorMessage,
+                                         bool allowPrompt)
 {
     if (!forceReLogin && m_client && m_client->hasApiKey()) {
         if (!m_fileSystem) {
@@ -221,6 +384,10 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     }
 
     if (m_loginAccount.isEmpty()) {
+        if (!allowPrompt) {
+            throw Error(KIO::ERR_CANNOT_LOGIN,
+                        i18n("Authentication is required. Open the Chomikuj account once to sign in."));
+        }
         authInfo.prompt = i18n("Enter your Chomikuj.pl account name and password");
         const int dialogResult = openPasswordDialog(authInfo, errorMessage);
         if (dialogResult != 0 || authInfo.username.isEmpty()) {
@@ -230,7 +397,7 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
         authInfo.url = QUrl(QStringLiteral("chomikuj://%1/").arg(m_loginAccount));
     } else if (authInfo.password.isEmpty()) {
         authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_loginAccount);
-        if (!checkCachedAuthentication(authInfo)) {
+        if (!checkCachedAuthentication(authInfo) && allowPrompt) {
             const int dialogResult = openPasswordDialog(authInfo, errorMessage);
             if (dialogResult != 0) {
                 throw Error(KIO::ERR_CANNOT_LOGIN, i18n("Authentication cancelled"));
@@ -243,6 +410,10 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     }
 
     if (authInfo.password.isEmpty()) {
+        if (!allowPrompt) {
+            throw Error(KIO::ERR_CANNOT_LOGIN,
+                        i18n("Authentication is required. Open the Chomikuj account once to sign in."));
+        }
         authInfo.prompt = i18n("Enter the password for Chomikuj account %1", m_loginAccount);
         const int dialogResult = openPasswordDialog(authInfo, errorMessage);
         if (dialogResult != 0 || authInfo.password.isEmpty()) {
@@ -257,7 +428,7 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
     try {
         client().login(m_loginAccount, authInfo.password);
     } catch (const Error &error) {
-        if (error.httpStatus() == 401 && errorMessage.isEmpty()) {
+        if (allowPrompt && error.httpStatus() == 401 && errorMessage.isEmpty()) {
             authInfo.password.clear();
             const int dialogResult = openPasswordDialog(
                 authInfo, i18n("The password for “%1” was rejected.", m_loginAccount));
@@ -274,7 +445,7 @@ void ChomikujWorker::ensureAuthenticated(bool forceReLogin, const QString &error
         }
     }
 
-    if (authInfo.keepPassword && environmentPassword.isEmpty()) {
+    if (allowPrompt && authInfo.keepPassword && environmentPassword.isEmpty()) {
         cacheAuthentication(authInfo);
     }
     writeConfigString("LastAccount", m_loginAccount);
@@ -301,7 +472,7 @@ void ChomikujWorker::configureFileSystem()
 
     qint64 listAccountId = 0;
     qint64 ownerAccountId = m_client->accountId().toLongLong();
-    bool readOnly = false;
+    bool readOnly = isStreamingProtocol();
 
     const bool isOwnAccount =
         m_targetAccount.compare(m_client->accountName(), Qt::CaseInsensitive) == 0
@@ -349,6 +520,10 @@ bool ChomikujWorker::promptFolderPassword(qint64 folderId, QString *password,
         return true;
     }
 
+    if (m_nonInteractive) {
+        return false;
+    }
+
     const int dialogResult = openPasswordDialog(authInfo, errorMessage);
     if (dialogResult != 0 || authInfo.password.isEmpty()) {
         return false;
@@ -370,6 +545,13 @@ KIO::WorkerResult ChomikujWorker::openConnection()
     } catch (const std::exception &error) {
         return failure(error);
     }
+}
+
+void ChomikujWorker::closeConnection()
+{
+    resetOpenState();
+    clearReadAhead();
+    m_nonInteractive = false;
 }
 
 KIO::UDSEntry ChomikujWorker::udsEntry(const Entry &entry, const QUrl &url) const
@@ -410,9 +592,18 @@ KIO::UDSEntry ChomikujWorker::udsEntry(const Entry &entry, const QUrl &url) cons
         if (!readOnly) {
             access |= S_IWUSR;
         }
+        const QString mimeType = Chomikuj::mimeTypeForName(entry.name);
         uds.fastInsert(KIO::UDSEntry::UDS_ACCESS, access);
-        uds.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE,
-                       Chomikuj::mimeTypeForName(entry.name));
+        uds.fastInsert(KIO::UDSEntry::UDS_MIME_TYPE, mimeType);
+
+        if (shouldUseStreamingTarget(entry, mimeType)) {
+            QUrl target = url;
+            target.setScheme(QStringLiteral("chomikujstream"));
+            target.setQuery(QString());
+            target.setFragment(QString());
+            uds.fastInsert(KIO::UDSEntry::UDS_TARGET_URL,
+                           target.toString(QUrl::FullyEncoded));
+        }
     }
 
     const QString account = m_targetAccount.isEmpty()
@@ -447,7 +638,7 @@ KIO::WorkerResult ChomikujWorker::listDir(const QUrl &url)
             return m_fileSystem->list(pathOf(url));
         });
         for (const Entry &entry : entries) {
-            listEntry(udsEntry(entry, url));
+            listEntry(udsEntry(entry, childUrl(url, entry.name)));
         }
         listEntry(dotEntry());
         return KIO::WorkerResult::pass();
@@ -502,7 +693,20 @@ KIO::WorkerResult ChomikujWorker::get(const QUrl &url)
         mimeType(Chomikuj::mimeTypeForName(entry.name));
         totalSize(entry.sizeBytes);
 
-        qint64 processed = 0;
+        QString rangeStart = metaData(QStringLiteral("range-start"));
+        if (rangeStart.isEmpty()) {
+            rangeStart = metaData(QStringLiteral("resume"));
+        }
+        bool offsetOk = false;
+        const qint64 startOffset = rangeStart.isEmpty()
+            ? 0
+            : rangeStart.toLongLong(&offsetOk);
+        const qint64 resumeOffset = (offsetOk && startOffset > 0) ? startOffset : 0;
+        if (!rangeStart.isEmpty()) {
+            canResume();
+        }
+
+        qint64 processed = resumeOffset;
         withAuthRetry([&] {
             m_fileSystem->download(
                 pathOf(url),
@@ -525,7 +729,8 @@ KIO::WorkerResult ChomikujWorker::get(const QUrl &url)
                 },
                 [&] {
                     return wasKilled();
-                });
+                },
+                resumeOffset);
         });
         data(QByteArray());
         return KIO::WorkerResult::pass();
@@ -534,6 +739,203 @@ KIO::WorkerResult ChomikujWorker::get(const QUrl &url)
     } catch (const std::exception &error) {
         return failure(error);
     }
+}
+
+KIO::WorkerResult ChomikujWorker::open(const QUrl &url, QIODevice::OpenMode mode)
+{
+    if ((mode & QIODevice::ReadOnly) == 0
+        || (mode & (QIODevice::WriteOnly | QIODevice::Append | QIODevice::Truncate))) {
+        return KIO::WorkerResult::fail(KIO::ERR_CANNOT_OPEN_FOR_WRITING, url.path());
+    }
+
+    resetOpenState();
+    m_nonInteractive = true;
+    try {
+        const Entry entry = withAuthRetry(
+            [&] {
+                return m_fileSystem->stat(pathOf(url));
+            },
+            false);
+        if (entry.isDir) {
+            m_nonInteractive = false;
+            return KIO::WorkerResult::fail(KIO::ERR_IS_DIRECTORY, url.path());
+        }
+        if (entry.id != m_readAheadFileId) {
+            clearReadAhead();
+        }
+
+        const QString urlForFile = downloadUrlFor(entry.id);
+        const qint64 fallbackSize = qMax<qint64>(0, entry.sizeBytes);
+        const qint64 knownSize = m_sizeCache.value(entry.id, -1);
+        auto reader = std::make_unique<RangeReader>(
+            client().transport(), client().userAgent(), urlForFile,
+            fallbackSize, knownSize);
+
+        if (knownSize < 0) {
+            reader->probeExactSize(
+                [&] {
+                    return downloadUrlFor(entry.id, true);
+                },
+                [&] {
+                    return wasKilled();
+                });
+            if (reader->sizeKnown()) {
+                m_sizeCache.insert(entry.id, reader->size());
+            }
+        }
+
+        if (!reader->sizeKnown() && reader->size() == 0) {
+            m_nonInteractive = false;
+            resetOpenState();
+            return KIO::WorkerResult::fail(
+                KIO::ERR_CANNOT_READ,
+                i18n("Could not determine the exact size of “%1”", entry.name));
+        }
+
+        m_urlCache.insert(entry.id,
+                          CachedUrl{reader->url(), QDateTime::currentMSecsSinceEpoch()});
+        m_openFileId = entry.id;
+        m_openOffset = 0;
+        m_openSize = reader->size();
+        m_openSizeKnown = reader->sizeKnown();
+        m_rangeReader = std::move(reader);
+        m_open = true;
+        m_nonInteractive = false;
+
+        mimeType(Chomikuj::mimeTypeForName(entry.name));
+        totalSize(m_openSize);
+        return KIO::WorkerResult::pass();
+    } catch (const Error &error) {
+        m_nonInteractive = false;
+        resetOpenState();
+        return failure(error);
+    } catch (const std::exception &error) {
+        m_nonInteractive = false;
+        resetOpenState();
+        return failure(error);
+    }
+}
+
+KIO::WorkerResult ChomikujWorker::read(KIO::filesize_t size)
+{
+    if (!m_open || !m_rangeReader) {
+        return KIO::WorkerResult::fail(KIO::ERR_CANNOT_READ, QString());
+    }
+
+    constexpr qint64 maxReadBytes = 8 * 1024 * 1024;
+    if (size == 0 || (m_openSizeKnown && m_openOffset >= m_openSize)) {
+        data(QByteArray());
+        return KIO::WorkerResult::pass();
+    }
+
+    const qint64 requested = qMin<qint64>(static_cast<qint64>(size), maxReadBytes);
+    const qint64 want = m_openSizeKnown
+        ? qMin<qint64>(requested, m_openSize - m_openOffset)
+        : requested;
+    if (want <= 0) {
+        data(QByteArray());
+        return KIO::WorkerResult::pass();
+    }
+
+    try {
+        constexpr qint64 readAheadBytes = 4 * 1024 * 1024;
+
+        // Serve from a previous FileJob's read-ahead buffer when possible.
+        if (m_readAheadFileId == m_openFileId
+            && m_openOffset >= m_readAheadOffset
+            && m_openOffset < m_readAheadOffset + m_readAhead.size()) {
+            const qint64 available =
+                m_readAheadOffset + m_readAhead.size() - m_openOffset;
+            const qint64 take = qMin(want, available);
+            const QByteArray chunk = m_readAhead.mid(
+                static_cast<int>(m_openOffset - m_readAheadOffset),
+                static_cast<int>(take));
+            data(chunk);
+            m_openOffset += chunk.size();
+            return KIO::WorkerResult::pass();
+        }
+
+        qint64 fetch = qMax(want, readAheadBytes);
+        if (m_openSizeKnown) {
+            fetch = qMin(fetch, m_openSize - m_openOffset);
+        }
+
+        const QByteArray body = m_rangeReader->read(
+            m_openOffset,
+            fetch,
+            [&] {
+                return downloadUrlFor(m_openFileId, true);
+            },
+            [&] {
+                return wasKilled();
+            });
+
+        if (m_rangeReader->sizeKnown()) {
+            const bool wasKnown = m_openSizeKnown;
+            m_openSizeKnown = true;
+            if (!wasKnown || m_rangeReader->size() != m_openSize) {
+                m_openSize = m_rangeReader->size();
+                m_sizeCache.insert(m_openFileId, m_openSize);
+                totalSize(m_openSize);
+            }
+        }
+
+        if (body.isEmpty()) {
+            if (m_openSizeKnown && m_openOffset >= m_openSize) {
+                data(QByteArray());
+                return KIO::WorkerResult::pass();
+            }
+            return KIO::WorkerResult::fail(KIO::ERR_CANNOT_READ,
+                                           QStringLiteral("The server returned no data"));
+        }
+
+        m_urlCache.insert(m_openFileId,
+                          CachedUrl{m_rangeReader->url(),
+                                    QDateTime::currentMSecsSinceEpoch()});
+        m_readAheadFileId = m_openFileId;
+        m_readAheadOffset = m_openOffset;
+        m_readAhead = body;
+        const qint64 take = qMin(want, body.size());
+        data(body.left(static_cast<int>(take)));
+        m_openOffset += take;
+        return KIO::WorkerResult::pass();
+    } catch (const Error &error) {
+        return failure(error);
+    } catch (const std::exception &error) {
+        return failure(error);
+    }
+}
+
+KIO::WorkerResult ChomikujWorker::write(const QByteArray &data)
+{
+    Q_UNUSED(data)
+    return KIO::WorkerResult::fail(KIO::ERR_UNSUPPORTED_ACTION, QString());
+}
+
+KIO::WorkerResult ChomikujWorker::seek(KIO::filesize_t offset)
+{
+    if (!m_open) {
+        return KIO::WorkerResult::fail(KIO::ERR_CANNOT_SEEK, QString());
+    }
+    if (offset > static_cast<KIO::filesize_t>(std::numeric_limits<qint64>::max())) {
+        return KIO::WorkerResult::fail(KIO::ERR_CANNOT_SEEK, QString());
+    }
+
+    m_openOffset = static_cast<qint64>(offset);
+    position(offset);
+    return KIO::WorkerResult::pass();
+}
+
+KIO::WorkerResult ChomikujWorker::truncate(KIO::filesize_t size)
+{
+    Q_UNUSED(size)
+    return KIO::WorkerResult::fail(KIO::ERR_UNSUPPORTED_ACTION, QString());
+}
+
+KIO::WorkerResult ChomikujWorker::close()
+{
+    resetOpenState();
+    return KIO::WorkerResult::pass();
 }
 
 KIO::WorkerResult ChomikujWorker::put(const QUrl &url, int permissions, KIO::JobFlags flags)

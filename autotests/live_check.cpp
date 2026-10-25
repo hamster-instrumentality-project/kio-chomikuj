@@ -15,6 +15,7 @@
 #include "core/chomikujclient.h"
 #include "core/chomikujerror.h"
 #include "core/qthttptransport.h"
+#include "core/rangereader.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -56,9 +57,13 @@ int main(int argc, char **argv)
     QCommandLineOption publicOption(QStringLiteral("public"),
                                     QStringLiteral("List the public root of the given account (read-only)"),
                                     QStringLiteral("account"));
+    QCommandLineOption rangeOption(
+        QStringLiteral("range"),
+        QStringLiteral("Also verify exact size and HTTP Range reads (requires --write)"));
     parser.addOption(writeOption);
     parser.addOption(keepOption);
     parser.addOption(publicOption);
+    parser.addOption(rangeOption);
     parser.process(app);
 
     const QString account = qEnvironmentVariable("CHOMIKUJ_ACCOUNT");
@@ -120,6 +125,9 @@ int main(int argc, char **argv)
         }
 
         if (!parser.isSet(writeOption)) {
+            if (parser.isSet(rangeOption)) {
+                return fail(QStringLiteral("--range requires --write"));
+            }
             return 0;
         }
 
@@ -150,13 +158,62 @@ int main(int argc, char **argv)
 
         QList<Entry> listing = client->listFolder(folderA);
         qint64 fileId = 0;
+        Entry uploadedEntry;
         for (const Entry &entry : listing) {
             if (entry.name == uploadedName) {
                 fileId = entry.id;
+                uploadedEntry = entry;
             }
         }
         if (fileId == 0) {
             return fail(QStringLiteral("uploaded file did not appear in the folder listing"));
+        }
+
+        if (parser.isSet(rangeOption)) {
+            RangeReader reader(client->transport(), client->userAgent(),
+                               client->downloadUrl(fileId),
+                               uploadedEntry.sizeBytes);
+            const qint64 exactSize = reader.probeExactSize(
+                [&] {
+                    return client->downloadUrl(fileId);
+                },
+                [] {
+                    return false;
+                });
+            if (exactSize != content.size()) {
+                return fail(QStringLiteral("exact size probe returned %1, expected %2")
+                                .arg(exactSize)
+                                .arg(content.size()));
+            }
+
+            const QList<qint64> offsets{0, 1, content.size() - 1};
+            for (qint64 offset : offsets) {
+                const qint64 wanted = qMin<qint64>(5, exactSize - offset);
+                const QByteArray part = reader.read(
+                    offset, wanted,
+                    [&] {
+                        return client->downloadUrl(fileId);
+                    },
+                    [] {
+                        return false;
+                    });
+                if (part != content.mid(offset, wanted)) {
+                    return fail(QStringLiteral("range read at offset %1 differed").arg(offset));
+                }
+            }
+
+            const QByteArray pastEnd = reader.read(
+                exactSize, 5,
+                [&] {
+                    return client->downloadUrl(fileId);
+                },
+                [] {
+                    return false;
+                });
+            if (!pastEnd.isEmpty()) {
+                return fail(QStringLiteral("read past EOF returned data"));
+            }
+            QTextStream(stdout) << "range reads verified (" << exactSize << " bytes)\n";
         }
 
         const QString renamed = QStringLiteral("renamed-%1.txt").arg(suffix);

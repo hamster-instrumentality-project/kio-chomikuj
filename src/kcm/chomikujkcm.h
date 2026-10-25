@@ -8,6 +8,7 @@
 #include <KCModule>
 
 class KPluginMetaData;
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QWidget;
@@ -29,4 +30,6 @@ private:
     QLineEdit *m_account = nullptr;
     QLineEdit *m_deviceName = nullptr;
     QLabel *m_deviceId = nullptr;
+    QComboBox *m_streamingTarget = nullptr;
+    QLineEdit *m_streamingPlayer = nullptr;
 };

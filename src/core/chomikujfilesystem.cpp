@@ -284,14 +284,15 @@ void ChomikujFileSystem::upload(const QString &localPath, const QString &destina
 void ChomikujFileSystem::download(const QString &path,
                                   const DataCallback &onData,
                                   const ProgressCallback &onProgress,
-                                  const std::function<bool()> &cancelled)
+                                  const std::function<bool()> &cancelled,
+                                  qint64 startOffset)
 {
     const Entry entry = resolveEntry(path);
     if (entry.isDir) {
         throw Error(KIO::ERR_IS_DIRECTORY,
                     QStringLiteral("“%1” is a folder").arg(entry.name));
     }
-    m_client.downloadFile(entry.id, onData, onProgress, cancelled);
+    m_client.downloadFile(entry.id, onData, onProgress, cancelled, startOffset);
 }
 
 void ChomikujFileSystem::clearCache()

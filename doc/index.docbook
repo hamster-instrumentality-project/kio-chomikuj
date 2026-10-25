@@ -49,4 +49,16 @@ delete-after-successful-upload replacement, and copying is implemented as
 download plus upload.
 </para>
 
+<para>
+The read-only <userinput>chomikujstream://<replaceable>account</replaceable>/</userinput>
+protocol supports random access through KIO's <function>open</function>,
+<function>read</function> and <function>seek</function> operations.  Together
+with <ulink url="https://invent.kde.org/system/kio-fuse">kio-fuse</ulink>, it
+lets media players stream and seek without downloading the whole file first.
+Use the Chomikuj service-menu action or the <command>kio-chomikuj-play</command>
+launcher to open a video from the normal <userinput>chomikuj://</userinput>
+view.  The streaming protocol is read-only; uploads, renames and deletes stay
+on the normal protocol.
+</para>
+
 </article>

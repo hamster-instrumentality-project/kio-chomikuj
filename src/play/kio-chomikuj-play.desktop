@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Chomikuj streaming player
+GenericName=Chomikuj video player
+Comment=Play a Chomikuj file through the read-only streaming protocol
+Exec=kio-chomikuj-play %u
+Icon=video-x-generic
+Terminal=false
+Categories=AudioVideo;Video;Player;
+MimeType=video/*;audio/*;
+X-KDE-Protocols=chomikuj;
+NoDisplay=false

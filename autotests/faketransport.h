@@ -37,7 +37,6 @@ public:
             response = handler(request);
         }
         if (!response.body.isEmpty() && onData && !onData(response.body)) {
-            response.status = 0;
             response.errorString = QStringLiteral("cancelled");
             return response;
         }

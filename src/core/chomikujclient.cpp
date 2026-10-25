@@ -6,6 +6,7 @@
 #include "chomikujclient.h"
 
 #include "chomikujerror.h"
+#include "rangereader.h"
 #include "retry.h"
 #include "signing.h"
 #include "uploader.h"
@@ -377,12 +378,34 @@ QString ChomikujClient::downloadUrl(qint64 fileId)
 void ChomikujClient::downloadFile(qint64 fileId,
                                   const DataCallback &onData,
                                   const ProgressCallback &onProgress,
-                                  const std::function<bool()> &cancelled)
+                                  const std::function<bool()> &cancelled,
+                                  qint64 startOffset)
 {
     QString url = downloadUrl(fileId);
-    qint64 offset = 0;
+    qint64 offset = qMax<qint64>(0, startOffset);
     bool refreshed = false;
     const int maxRefresh = 1;
+
+    if (offset > 0) {
+        // A 200 response to a Range request must not be streamed to the caller:
+        // that would silently append bytes from offset 0.  Verify the server
+        // honours the range with a one-byte request first.
+        RangeReader validator(*m_transport, m_userAgent, url, -1);
+        try {
+            validator.read(
+                offset, 1,
+                [&] {
+                    url = downloadUrl(fileId);
+                    return url;
+                },
+                cancelled);
+        } catch (const Error &error) {
+            if (error.kioCode() == KIO::ERR_CANNOT_SEEK) {
+                throw Error(KIO::ERR_CANNOT_RESUME, error.message());
+            }
+            throw;
+        }
+    }
 
     while (true) {
         HttpRequest request;

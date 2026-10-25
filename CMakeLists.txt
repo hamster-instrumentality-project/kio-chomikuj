@@ -13,7 +13,7 @@ include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 include(CTest)
 
-find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Core Network Widgets)
+find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Core DBus Network Widgets)
 if (BUILD_TESTING)
     find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Test)
 endif ()
@@ -47,6 +47,8 @@ add_library(chomikujcore STATIC
     src/core/chomikujclient.cpp
     src/core/chomikujfilesystem.h
     src/core/chomikujfilesystem.cpp
+    src/core/rangereader.h
+    src/core/rangereader.cpp
     src/core/uploader.h
     src/core/uploader.cpp
 )
@@ -78,6 +80,7 @@ target_link_libraries(kio_chomikuj
 set_target_properties(kio_chomikuj PROPERTIES OUTPUT_NAME "chomikuj")
 
 add_subdirectory(src/kcm)
+add_subdirectory(src/play)
 add_subdirectory(doc)
 
 find_package(Gettext REQUIRED)

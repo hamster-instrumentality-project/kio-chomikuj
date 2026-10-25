@@ -46,7 +46,8 @@ public:
     void download(const QString &path,
                   const DataCallback &onData,
                   const ProgressCallback &onProgress,
-                  const std::function<bool()> &cancelled);
+                  const std::function<bool()> &cancelled,
+                  qint64 startOffset = 0);
 
     void clearCache();
 

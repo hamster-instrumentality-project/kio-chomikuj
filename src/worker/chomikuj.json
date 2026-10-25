@@ -26,6 +26,33 @@
             "protocol": "chomikuj",
             "reading": true,
             "writing": true
+        },
+        "chomikujstream": {
+            "Class": ":internet",
+            "ExtraNames": [],
+            "Icon": "folder-remote",
+            "X-DocPath": "kioworker6/chomikuj/index.html",
+            "copyFromFile": false,
+            "deleteRecursive": false,
+            "deleting": false,
+            "input": "none",
+            "linking": false,
+            "maxInstances": 5,
+            "maxInstancesPerHost": 5,
+            "listing": [
+                "Name",
+                "Type",
+                "Size",
+                "Access"
+            ],
+            "makedir": false,
+            "moving": false,
+            "opening": true,
+            "output": "filesystem",
+            "protocol": "chomikujstream",
+            "reading": true,
+            "truncating": true,
+            "writing": false
         }
     }
 }

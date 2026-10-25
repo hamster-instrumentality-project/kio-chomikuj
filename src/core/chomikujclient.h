@@ -61,7 +61,8 @@ public:
     void downloadFile(qint64 fileId,
                       const DataCallback &onData,
                       const ProgressCallback &onProgress,
-                      const std::function<bool()> &cancelled);
+                      const std::function<bool()> &cancelled,
+                      qint64 startOffset = 0);
 
     UploadSlot negotiateUpload(const QString &name, qint64 size,
                                qint64 folderId, const QString &crc32Hex);

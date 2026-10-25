@@ -62,6 +62,9 @@ HttpResponse QtHttpTransport::send(const HttpRequest &request)
     QNetworkReply *reply = nullptr;
     if (request.body.isEmpty() && request.method == QByteArrayLiteral("GET")) {
         reply = m_manager.get(networkRequest);
+    } else if (request.body.isEmpty() && request.method == QByteArrayLiteral("HEAD")) {
+        // Qt 6.11 can keep a sendCustomRequest("HEAD") pending until timeout.
+        reply = m_manager.head(networkRequest);
     } else if (request.body.isEmpty() && request.method == QByteArrayLiteral("DELETE")) {
         reply = m_manager.deleteResource(networkRequest);
     } else {

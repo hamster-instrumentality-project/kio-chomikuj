@@ -10,6 +10,7 @@
 #include <KPluginFactory>
 #include <KSharedConfig>
 
+#include <QComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -45,6 +46,23 @@ ChomikujKcm::ChomikujKcm(QObject *parent, const KPluginMetaData &data)
     deviceIdLayout->addWidget(regenerate);
     layout->addRow(i18n("Device ID:"), deviceIdRow);
 
+    m_streamingTarget = new QComboBox(widget());
+    m_streamingTarget->addItem(i18n("Off"), QStringLiteral("off"));
+    m_streamingTarget->addItem(i18n("Read-only accounts"), QStringLiteral("read-only"));
+    m_streamingTarget->addItem(i18n("All video files"), QStringLiteral("all"));
+    layout->addRow(i18n("Use streaming for videos:"), m_streamingTarget);
+
+    m_streamingPlayer = new QLineEdit(widget());
+    m_streamingPlayer->setPlaceholderText(QStringLiteral("mpv"));
+    layout->addRow(i18n("Streaming player:"), m_streamingPlayer);
+
+    auto *streamingHint = new QLabel(
+        i18n("“All video files” makes normal Open With use random-access streaming, "
+             "but video files opened through kio-fuse become read-only."),
+        widget());
+    streamingHint->setWordWrap(true);
+    layout->addRow(streamingHint);
+
     auto *hint = new QLabel(
         i18n("The account password is stored through KIO/KWallet, not in this configuration file."),
         widget());
@@ -53,6 +71,8 @@ ChomikujKcm::ChomikujKcm(QObject *parent, const KPluginMetaData &data)
 
     connect(m_account, &QLineEdit::textChanged, this, &ChomikujKcm::markChanged);
     connect(m_deviceName, &QLineEdit::textChanged, this, &ChomikujKcm::markChanged);
+    connect(m_streamingTarget, &QComboBox::currentIndexChanged, this, &ChomikujKcm::markChanged);
+    connect(m_streamingPlayer, &QLineEdit::textChanged, this, &ChomikujKcm::markChanged);
     connect(regenerate, &QPushButton::clicked, this, [this] {
         m_deviceId->setText(QUuid::createUuid().toString(QUuid::WithoutBraces));
         markChanged();
@@ -72,6 +92,13 @@ void ChomikujKcm::load()
         deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     }
     m_deviceId->setText(deviceId);
+
+    const KConfigGroup streaming(KSharedConfig::openConfig(QStringLiteral("chomikujrc")),
+                                 QStringLiteral("Streaming"));
+    const QString target = streaming.readEntry("TargetUrl", QStringLiteral("read-only"));
+    const int targetIndex = m_streamingTarget->findData(target);
+    m_streamingTarget->setCurrentIndex(targetIndex >= 0 ? targetIndex : 1);
+    m_streamingPlayer->setText(streaming.readEntry("Player", QStringLiteral("mpv")));
 
     setNeedsSave(false);
     setRepresentsDefaults(false);
@@ -95,6 +122,14 @@ void ChomikujKcm::save()
     group.writeEntry("DeviceId", deviceId);
     group.sync();
 
+    KConfigGroup streaming(KSharedConfig::openConfig(QStringLiteral("chomikujrc")),
+                           QStringLiteral("Streaming"));
+    streaming.writeEntry("TargetUrl",
+                         m_streamingTarget->currentData().toString());
+    const QString player = m_streamingPlayer->text().trimmed();
+    streaming.writeEntry("Player", player.isEmpty() ? QStringLiteral("mpv") : player);
+    streaming.sync();
+
     setNeedsSave(false);
     setRepresentsDefaults(false);
 }
@@ -104,6 +139,8 @@ void ChomikujKcm::defaults()
     m_account->clear();
     m_deviceName->setText(QStringLiteral("KDE"));
     m_deviceId->setText(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    m_streamingTarget->setCurrentIndex(1);
+    m_streamingPlayer->setText(QStringLiteral("mpv"));
     markChanged();
     setRepresentsDefaults(true);
 }

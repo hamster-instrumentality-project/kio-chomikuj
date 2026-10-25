@@ -14,6 +14,9 @@ KIO-aware applications:
 - rename and move files/folders
 - delete files and folders (including recursive delete)
 - report MIME types and approximate sizes
+- random-access reads through KIO `open`/`seek` and HTTP `Range`, so videos
+  can be streamed and seeked through kio-fuse without downloading the whole
+  file first
 - keep browsing responsive while an upload or download is running by allowing
   multiple KIO worker instances per account
 
@@ -34,6 +37,16 @@ chomikuj://myaccount/
 chomikuj://myaccount/Music
 chomikuj://myaccount/Music/song.mp3
 ```
+
+There is also a read-only streaming variant:
+
+```
+chomikujstream://myaccount/Movies/film.mkv
+```
+
+It serves the same account tree but supports KIO `open`/`seek` (random
+access).  Normal file management stays on `chomikuj://`; see
+[Video playback and random access](#video-playback-and-random-access).
 
 `chomikuj:/` uses the last successfully used account. If none has been
 configured yet, open `chomikuj://<account>/` once; the account is remembered.
@@ -74,6 +87,7 @@ Requirements:
 - zlib
 - gettext (`msgfmt`)
 - a C++20 compiler and Ninja or Make
+- kio-fuse at runtime for video playback through media players
 
 On Arch Linux:
 
@@ -101,7 +115,10 @@ The installed files are (on a typical Qt6/Arch layout):
 ```
 /usr/lib/qt6/plugins/kf6/kio/chomikuj.so
 /usr/lib/qt6/plugins/plasma/kcms/systemsettings_qwidgets/kcm_chomikuj.so
+/usr/bin/kio-chomikuj-play
+/usr/share/applications/kio-chomikuj-play.desktop
 /usr/share/applications/kcm_chomikuj.desktop
+/usr/share/kio/servicemenus/chomikuj-play.desktop
 /usr/share/doc/HTML/en/kioworker6/chomikuj/
 /usr/share/locale/pl/LC_MESSAGES/kio6_chomikuj.mo
 ```
@@ -164,6 +181,82 @@ URL. Copying from SMB, MTP, archives or other workers still uses KIO's data
 pump, whose progress reflects reading the source rather than the Chomikuj
 upload.
 
+## Video playback and random access
+
+`mpv`, VLC and other media players do not speak KIO.  They normally access
+remote files through [kio-fuse](https://invent.kde.org/system/kio-fuse), which
+mounts KIO URLs under `/run/user/$UID/kio-fuse-*/`.  A KIO worker must implement
+`open`/`read`/`seek` for kio-fuse to use HTTP Range requests; ordinary
+`get`-only workers make the player read the file sequentially from the start.
+
+The worker implements that interface and exposes it through the read-only
+`chomikujstream` protocol.  It is kept separate from `chomikuj` deliberately:
+if the normal protocol advertised FileJob support, kio-fuse would also route
+writes through FileJob, and Chomikuj cannot random-write or truncate files.
+
+### Recommended use
+
+1. Keep browsing and file management on `chomikuj://`.
+2. Right-click a video in Dolphin and choose **Chomikuj → Play
+   (streaming)**, or use **Open With → Chomikuj streaming player**.
+3. The helper (`kio-chomikuj-play`) rewrites the URL to
+   `chomikujstream://`, asks kio-fuse for the local path, and starts the
+   configured player.
+
+The helper is installed by this project together with a Dolphin service menu
+and an Open With entry.  It is a one-shot launcher, not a daemon.
+
+You can also mount or browse `chomikujstream://myaccount/` directly.  In that
+view, ordinary Open With and double-click work with random access because the
+mount itself is the streaming protocol.
+
+### Configuration
+
+The control module in System Settings exposes the same options; they are
+stored in `chomikujrc`:
+
+```ini
+[Streaming]
+Player=mpv
+TargetUrl=read-only
+```
+
+`TargetUrl` controls whether video entries advertise `chomikujstream` through
+`UDS_TARGET_URL`, which lets Dolphin/kio-fuse route normal video opens to
+streaming automatically:
+
+| Value | Behaviour | Writes to videos through kio-fuse |
+|---|---|---|
+| `off` | No automatic routing; use the helper or browse `chomikujstream` | Unchanged |
+| `read-only` | Public/read-only accounts route video files automatically | Impossible anyway (read-only account) |
+| `all` | All video files, including your own, route automatically | Video files become FileJob-based and read-only |
+
+The default is `read-only`.  Use `all` if you want zero-click Open With for
+your own videos and do not write video files through a kio-fuse mount.
+
+The helper reads the player from `[Streaming] Player` (default `mpv`).  The
+environment variables `CHOMIKUJ_STREAMING_PLAYER` and
+`CHOMIKUJ_STREAMING_TARGET_URL` override them for development and tests.
+
+### Limitations
+
+- `chomikujstream` is read-only.  Uploads, renames, deletes and truncation
+  are not supported; use `chomikuj://` for those.
+- kio-fuse 5.1 requires both the `opening` and `truncating` capability flags
+  before choosing its FileJob path.  The streaming protocol therefore
+  advertises `truncating` even though `truncate()` returns an error; normal
+  playback never calls it.
+- kio-fuse opens a new FileJob for each FUSE read.  The worker caches the
+  signed URL, exact size and path resolution, and keeps a small read-ahead
+  buffer across those opens so sequential playback does not issue one HTTP
+  request per small read.  Seeking still creates HTTP Range requests and
+  counts against the transfer balance.
+- A kio-fuse mount is only seekable for protocols that advertise `opening`.
+  Without kio-fuse, `mpv chomikuj://...` is not possible; use the helper or a
+  `chomikujstream` mount.
+- Exact sizes are probed with `HEAD` and `Range: bytes=0-0`.  Listing sizes
+  remain floored kilobytes, as reported by the API.
+
 ## Testing
 
 Offline unit tests (no credentials and no network):
@@ -174,7 +267,9 @@ ctest --test-dir build --output-on-failure
 
 They cover request signing, response/error parsing, pagination, the chunked
 upload state machine, CRC32/multipart framing, path resolution, rename/move and
-delete safety, and plugin metadata registration.
+delete safety, plugin metadata registration, HTTP Range semantics, URL refresh,
+EOF handling, the KIO FileJob open/seek/read/close pattern against a mock
+server, and the streaming URL rewriter.
 
 A gated live check talks to the real backend and only touches resources it
 creates itself:
@@ -189,6 +284,9 @@ export CHOMIKUJ_PASSWORD='your_password'
 # also run a self-cleaning create/upload/rename/move/download/delete round-trip
 ./build/bin/chomikuj_live --write
 
+# also verify exact size and HTTP Range reads on the uploaded probe file
+./build/bin/chomikuj_live --write --range
+
 # read-only public-account listing check
 ./build/bin/chomikuj_live --public someuser
 ```
@@ -200,6 +298,10 @@ For local integration testing, the worker honours:
   password dialog
 - `CHOMIKUJ_RETRY_BASE_MS` / `CHOMIKUJ_RETRY_MAX_MS` — override the retry
   backoff window (defaults: 500 ms doubling to 8 s, with full jitter)
+- `CHOMIKUJ_STREAMING_TARGET_URL` — override the streaming routing policy
+  (`off`, `read-only`, `all`)
+- `CHOMIKUJ_STREAMING_PLAYER` — override the launcher's media player
+  (default `mpv`)
 
 These are intended for development and CI only.
 
@@ -225,10 +327,17 @@ than hidden:
   `chmod`, `chown`, `setModificationTime` and symlinks are unsupported.
 - **Recursive folder delete is server-side.** The worker refuses to delete a
   non-empty folder unless KIO sends `recurse=true`.
-- **No KIO-level upload resume.** The uploader itself resumes from the
-  server's reported chunk offset after ambiguous chunk failures, and treats a
-  fully sent final chunk as submitted while the server finalizes it. A new
-  KIO `put` operation still reads the source stream from the beginning.
+- **Random access is read-only.** `chomikujstream://` supports `open`, `read`
+  and `seek`, but not writes or truncation.  kio-fuse's FileJob path is not
+  enabled on `chomikuj://`, because that would also break normal writes through
+  a kio-fuse mount.
+- **Download resume is supported; upload resume is not.** KIO's
+  `range-start` metadata is honoured by `get()`, including a server that
+  ignores the Range request being reported as `ERR_CANNOT_RESUME`. The
+  uploader resumes internally from the server's reported chunk offset after
+  ambiguous chunk failures, and treats a fully sent final chunk as submitted
+  while the server finalizes it. A new KIO `put` operation still reads the
+  source stream from the beginning.
 - **Public accounts are read-only.** `chomikuj://otheruser/` works for public
   trees, but write operations are refused locally before any API call.
 - **Folder passwords** are supported through the standard KIO password dialog.
@@ -236,9 +345,14 @@ than hidden:
 ## Implementation
 
 - `src/core/` — protocol client, signing, HTTP transport, path resolver,
-  chunked uploader. Kept independent of KIO for testability.
-- `src/worker/` — `KIO::WorkerBase` adapter and UDSEntry mapping.
-- `autotests/` — offline tests and the gated live check.
+  chunked uploader and the `RangeReader`. Kept independent of KIO for
+  testability.
+- `src/worker/` — `KIO::WorkerBase` adapter, UDSEntry mapping and the
+  `open`/`seek`/`read` FileJob implementation.
+- `src/play/` — the `kio-chomikuj-play` launcher and its desktop/service-menu
+  integration.
+- `autotests/` — offline tests, a mock-backed KIO FileJob test and the gated
+  live check.
 - `PLAN.md` — design notes, milestones and protocol risks.
 
 The protocol reference is in

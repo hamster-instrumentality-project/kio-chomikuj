@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Service
+Name=Chomikuj streaming playback
+ServiceTypes=KonqPopupMenu/Plugin
+MimeType=video/*;audio/*;
+Actions=playStreaming;
+X-KDE-Submenu=Chomikuj
+X-KDE-Protocols=chomikuj;
+X-KDE-Priority=TopLevel
+
+[Desktop Action playStreaming]
+Name=Play (streaming)
+Icon=video-x-generic
+Exec=kio-chomikuj-play %u

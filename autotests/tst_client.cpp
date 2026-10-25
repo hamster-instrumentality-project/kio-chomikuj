@@ -64,6 +64,8 @@ private Q_SLOTS:
     void httpError();
     void retriesIdempotent();
     void download();
+    void downloadResume();
+    void downloadResumeRejectsIgnoredRange();
     void accountSearch();
     void publicListing();
     void folderPassword();
@@ -244,6 +246,94 @@ void ClientTest::download()
 
     QCOMPARE(received, QByteArray("hello world"));
     QVERIFY(!progress.isEmpty());
+}
+
+void ClientTest::downloadResume()
+{
+    Fixture fixture;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/files/download")) {
+            return jsonResponse(200, "{\"Code\":0,\"FileUrl\":\"https://cdn.test/file\"}");
+        }
+        if (request.url.host() == QLatin1String("cdn.test")) {
+            const QByteArray range = request.headers.value("Range");
+            if (range == QByteArray("bytes=6-6")) {
+                HttpResponse response;
+                response.status = 206;
+                response.headers.insert("Content-Length", "1");
+                response.headers.insert("Content-Range", "bytes 6-6/11");
+                response.body = "w";
+                return response;
+            }
+            if (range != QByteArray("bytes=6-")) {
+                return jsonResponse(400, "{}");
+            }
+            HttpResponse response;
+            response.status = 206;
+            response.headers.insert("Content-Length", "5");
+            response.headers.insert("Content-Range", "bytes 6-10/11");
+            response.body = "world";
+            return response;
+        }
+        return jsonResponse(500, "{}");
+    };
+
+    QByteArray received;
+    QList<qint64> progress;
+    fixture.client->downloadFile(
+        5,
+        [&](const QByteArray &chunk) {
+            received += chunk;
+            return true;
+        },
+        [&](qint64 current, qint64 total) {
+            progress.append(current);
+            if (total >= 0) {
+                QCOMPARE(total, qint64(11));
+            }
+        },
+        [] {
+            return false;
+        },
+        6);
+
+    QCOMPARE(received, QByteArray("world"));
+    QVERIFY(!progress.isEmpty());
+    QCOMPARE(progress.first(), qint64(6));
+}
+
+void ClientTest::downloadResumeRejectsIgnoredRange()
+{
+    Fixture fixture;
+    fixture.fake->handler = [](const Chomikuj::HttpRequest &request) {
+        if (request.url.path() == QLatin1String("/api/v3/files/download")) {
+            return jsonResponse(200, "{\"Code\":0,\"FileUrl\":\"https://cdn.test/file\"}");
+        }
+        if (request.url.host() == QLatin1String("cdn.test")) {
+            HttpResponse response;
+            response.status = 200;
+            response.headers.insert("Content-Length", "11");
+            response.body = "hello world";
+            return response;
+        }
+        return jsonResponse(500, "{}");
+    };
+
+    try {
+        fixture.client->downloadFile(
+            5,
+            [](const QByteArray &) {
+                return true;
+            },
+            nullptr,
+            [] {
+                return false;
+            },
+            6);
+        QFAIL("expected ERR_CANNOT_RESUME");
+    } catch (const Chomikuj::Error &error) {
+        QCOMPARE(error.kioCode(), static_cast<int>(KIO::ERR_CANNOT_RESUME));
+    }
 }
 
 void ClientTest::accountSearch()
