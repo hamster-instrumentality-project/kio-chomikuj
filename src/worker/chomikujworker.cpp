@@ -30,6 +30,7 @@
 
 #include <sys/stat.h>
 
+#include <cstdio>
 #include <limits>
 #include <memory>
 
@@ -62,6 +63,19 @@ QString streamingConfigString(const char *key, const QString &defaultValue)
     const QString environmentValue = qEnvironmentVariable(environmentKey.toUtf8().constData());
     if (!environmentValue.isEmpty()) {
         return environmentValue;
+    }
+
+    // KSharedConfig does not notice edits made by another process (the KCM)
+    // unless it is told to reparse.  Workers are long-lived, so check the file
+    // mtime before reading streaming settings.
+    static qint64 lastConfigMtime = -1;
+    const QString configPath =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + QStringLiteral("/chomikujrc");
+    const qint64 configMtime = QFileInfo(configPath).lastModified().toMSecsSinceEpoch();
+    if (configMtime != lastConfigMtime) {
+        KSharedConfig::openConfig(QStringLiteral("chomikujrc"))->reparseConfiguration();
+        lastConfigMtime = configMtime;
     }
 
     const KConfigGroup group(KSharedConfig::openConfig(QStringLiteral("chomikujrc")),
@@ -310,7 +324,7 @@ QString ChomikujWorker::downloadUrlFor(qint64 fileId, bool forceRefresh)
     if (!forceRefresh) {
         const auto cached = m_urlCache.constFind(fileId);
         if (cached != m_urlCache.cend() && !cached->url.isEmpty()
-            && now - cached->fetchedAt < 60000) {
+            && now - cached->fetchedAt < 300000) {
             return cached->url;
         }
     }
@@ -838,7 +852,7 @@ KIO::WorkerResult ChomikujWorker::read(KIO::filesize_t size)
     }
 
     try {
-        constexpr qint64 readAheadBytes = 4 * 1024 * 1024;
+        constexpr qint64 readAheadBytes = 1024 * 1024;
 
         // Serve from a previous FileJob's read-ahead buffer when possible.
         if (m_readAheadFileId == m_openFileId

@@ -152,50 +152,13 @@ qint64 RangeReader::probeExactSize(const UrlRefresher &refreshUrl,
     }
 
     bool refreshed = false;
+    int networkRetries = 0;
 
     for (int attempt = 0; attempt < 2; ++attempt) {
         if (isCancelled(cancelled)) {
             throwCancelled();
         }
 
-        HttpRequest headRequest;
-        headRequest.method = QByteArrayLiteral("HEAD");
-        headRequest.url = QUrl(m_url);
-        headRequest.timeoutMs = 30000;
-        headRequest.cancelled = cancelled;
-        headRequest.headers.insert("User-Agent", m_userAgent.toUtf8());
-        headRequest.headers.insert("Accept-Encoding", "identity");
-
-        const HttpResponse head = m_transport.send(headRequest);
-
-        if (isRefreshStatus(head.status) && !refreshed && refreshUrl) {
-            const QString next = refreshUrl();
-            if (!next.isEmpty()) {
-                m_url = next;
-                refreshed = true;
-                continue;
-            }
-        }
-
-        if (head.status >= 200 && head.status < 300) {
-            const qint64 length = contentLength(head);
-            if (length >= 0) {
-                m_size = length;
-                m_sizeKnown = true;
-                return m_size;
-            }
-        }
-        break;
-    }
-
-    if (isCancelled(cancelled)) {
-        throwCancelled();
-    }
-
-    // Not every signed URL answers HEAD.  Ask for one byte and derive the
-    // total from Content-Range (or Content-Length if the server ignored Range).
-    bool refreshedByRange = false;
-    for (int attempt = 0; attempt < 2; ++attempt) {
         HttpRequest request;
         request.method = QByteArrayLiteral("GET");
         request.url = QUrl(m_url);
@@ -218,14 +181,15 @@ qint64 RangeReader::probeExactSize(const UrlRefresher &refreshUrl,
             throwCancelled();
         }
         if (response.isNetworkError() && !receivedData) {
-            break;
+            retryOrThrow(networkRetries, cancelled);
+            continue;
         }
 
-        if (isRefreshStatus(response.status) && !refreshedByRange && refreshUrl) {
+        if (isRefreshStatus(response.status) && !refreshed && refreshUrl) {
             const QString next = refreshUrl();
             if (!next.isEmpty()) {
                 m_url = next;
-                refreshedByRange = true;
+                refreshed = true;
                 continue;
             }
         }

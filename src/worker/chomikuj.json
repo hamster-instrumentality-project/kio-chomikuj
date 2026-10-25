@@ -37,8 +37,8 @@
             "deleting": false,
             "input": "none",
             "linking": false,
-            "maxInstances": 5,
-            "maxInstancesPerHost": 5,
+            "maxInstances": 1,
+            "maxInstancesPerHost": 1,
             "listing": [
                 "Name",
                 "Type",

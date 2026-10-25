@@ -234,6 +234,12 @@ streaming automatically:
 The default is `read-only`.  Use `all` if you want zero-click Open With for
 your own videos and do not write video files through a kio-fuse mount.
 
+kio-fuse caches the I/O node type for already-opened files.  After changing
+`TargetUrl`, close and reopen the file, or remount kio-fuse; an open file
+descriptor keeps its previous streaming/cache mode until then.  The explicit
+`kio-chomikuj-play` action always uses `chomikujstream`, regardless of the
+automatic `TargetUrl` setting.
+
 The helper reads the player from `[Streaming] Player` (default `mpv`).  The
 environment variables `CHOMIKUJ_STREAMING_PLAYER` and
 `CHOMIKUJ_STREAMING_TARGET_URL` override them for development and tests.
@@ -254,8 +260,8 @@ environment variables `CHOMIKUJ_STREAMING_PLAYER` and
 - A kio-fuse mount is only seekable for protocols that advertise `opening`.
   Without kio-fuse, `mpv chomikuj://...` is not possible; use the helper or a
   `chomikujstream` mount.
-- Exact sizes are probed with `HEAD` and `Range: bytes=0-0`.  Listing sizes
-  remain floored kilobytes, as reported by the API.
+- Exact sizes are probed with `Range: bytes=0-0`.  Listing sizes remain
+  floored kilobytes, as reported by the API.
 
 ## Testing
 

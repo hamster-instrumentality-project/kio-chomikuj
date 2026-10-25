@@ -115,6 +115,7 @@ class FileSystemTest : public QObject
 
 private Q_SLOTS:
     void listAndStat();
+    void statIsCached();
     void missing();
     void mkdir();
     void rename();
@@ -141,6 +142,34 @@ void FileSystemTest::listAndStat()
     QCOMPARE(entry.id, qint64(2));
     QCOMPARE(entry.name, QStringLiteral("A.mp3"));
     QVERIFY(!entry.isDir);
+}
+
+void FileSystemTest::statIsCached()
+{
+    Fixture fixture;
+    auto folderRequests = [&fixture] {
+        int count = 0;
+        for (const auto &request : fixture.fake->requests) {
+            if (request.url.path() == QLatin1String("/api/v3/folders")) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    const Chomikuj::Entry first = fixture.fs->stat(QStringLiteral("/Music/A.mp3"));
+    QCOMPARE(first.id, qint64(2));
+    const int afterFirst = folderRequests();
+    QVERIFY(afterFirst >= 2); // root + Music
+
+    const Chomikuj::Entry second = fixture.fs->stat(QStringLiteral("/Music/A.mp3"));
+    QCOMPARE(second.id, qint64(2));
+    QCOMPARE(folderRequests(), afterFirst);
+
+    fixture.fs->clearCache();
+    const Chomikuj::Entry third = fixture.fs->stat(QStringLiteral("/Music/A.mp3"));
+    QCOMPARE(third.id, qint64(2));
+    QVERIFY(folderRequests() > afterFirst);
 }
 
 void FileSystemTest::missing()

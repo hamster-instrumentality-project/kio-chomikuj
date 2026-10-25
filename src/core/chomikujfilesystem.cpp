@@ -112,7 +112,19 @@ QList<Entry> ChomikujFileSystem::list(const QString &path)
 
 Entry ChomikujFileSystem::stat(const QString &path)
 {
-    return resolveEntry(path);
+    const QString key = normalizedPath(path);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const auto cached = m_entryCache.constFind(key);
+    // Path resolution is expensive (one listing per path segment).  Keep it
+    // for five minutes; every namespace mutation clears this cache, and the
+    // separate listing cache still refreshes folder contents after 5 seconds.
+    if (cached != m_entryCache.cend() && now - cached->fetchedAt < 300000) {
+        return cached->entry;
+    }
+
+    const Entry entry = resolveEntry(key);
+    m_entryCache.insert(key, CachedEntry{entry, now});
+    return entry;
 }
 
 Entry ChomikujFileSystem::mkdir(const QString &path)
@@ -287,7 +299,7 @@ void ChomikujFileSystem::download(const QString &path,
                                   const std::function<bool()> &cancelled,
                                   qint64 startOffset)
 {
-    const Entry entry = resolveEntry(path);
+    const Entry entry = stat(path);
     if (entry.isDir) {
         throw Error(KIO::ERR_IS_DIRECTORY,
                     QStringLiteral("“%1” is a folder").arg(entry.name));
@@ -298,6 +310,7 @@ void ChomikujFileSystem::download(const QString &path,
 void ChomikujFileSystem::clearCache()
 {
     m_cache.clear();
+    m_entryCache.clear();
 }
 
 QList<Entry> ChomikujFileSystem::listFolder(qint64 folderId, bool useCache)
@@ -432,6 +445,10 @@ void ChomikujFileSystem::resolveParent(const QString &path, qint64 *parentId, QS
 void ChomikujFileSystem::invalidate(qint64 folderId)
 {
     m_cache.remove(folderId);
+    // Entry paths contain folder names, so a change in one folder can affect
+    // any cached descendant path.  Clearing is cheap compared with a stale
+    // name resolving to the wrong id.
+    m_entryCache.clear();
 }
 
 } // namespace Chomikuj

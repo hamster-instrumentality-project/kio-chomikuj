@@ -19,13 +19,18 @@
 #include <KProtocolManager>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUrlQuery>
 #include <QtTest>
@@ -384,6 +389,7 @@ class KioOpenTest : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+    void configChangesArePickedUp();
     void randomAccess();
     void readAtEof();
     void writeOpenFails();
@@ -395,12 +401,24 @@ private Q_SLOTS:
 
 private:
     MockServer *m_mock = nullptr;
+    QTemporaryDir m_configDir;
 };
 
 void KioOpenTest::initTestCase()
 {
     m_mock = new MockServer(this);
     QVERIFY2(m_mock->isValid(), "mock server failed to listen");
+    QVERIFY(m_configDir.isValid());
+    qputenv("XDG_CONFIG_HOME", m_configDir.path().toUtf8());
+
+    const QString configPath =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + QStringLiteral("/chomikujrc");
+    QDir().mkpath(QFileInfo(configPath).absolutePath());
+    QFile config(configPath);
+    QVERIFY(config.open(QIODevice::WriteOnly));
+    config.write("[Streaming]\nTargetUrl=off\n");
+    config.close();
 
     qputenv("CHOMIKUJ_BASE_URL",
             QStringLiteral("http://127.0.0.1:%1").arg(m_mock->port()).toUtf8());
@@ -412,6 +430,54 @@ void KioOpenTest::initTestCase()
 
     QVERIFY(KProtocolManager::supportsOpening(streamingUrl()));
     QVERIFY(KProtocolManager::supportsTruncating(streamingUrl()));
+}
+
+void KioOpenTest::configChangesArePickedUp()
+{
+    const QString configPath =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + QStringLiteral("/chomikujrc");
+
+    auto statTarget = [](const QUrl &url) {
+        QEventLoop loop;
+        QTimer timer;
+        timer.setSingleShot(true);
+        QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+        QString target;
+        KIO::StatJob *job = KIO::stat(url);
+        job->setSide(KIO::StatJob::SourceSide);
+        QObject::connect(job, &KIO::StatJob::result, &loop, [&](KJob *finished) {
+            if (!finished->error()) {
+                target = job->statResult().stringValue(KIO::UDSEntry::UDS_TARGET_URL);
+            }
+            loop.quit();
+        });
+        timer.start(s_timeoutMs);
+        loop.exec();
+        if (job->error()) {
+            target.clear();
+        }
+        job->deleteLater();
+        return target;
+    };
+
+    // The environment override would mask the configuration file.
+    qunsetenv("CHOMIKUJ_STREAMING_TARGET_URL");
+    const QUrl url(QStringLiteral("chomikuj://user/movie.mkv"));
+    QVERIFY(statTarget(url).isEmpty());
+
+    {
+        QFile config(configPath);
+        QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        config.write("[Streaming]\nTargetUrl=all\n");
+        config.close();
+    }
+    QTest::qSleep(20);
+    const QString target = statTarget(url);
+    QCOMPARE(QUrl(target).scheme(), QStringLiteral("chomikujstream"));
+
+    qputenv("CHOMIKUJ_STREAMING_TARGET_URL", "all");
 }
 
 void KioOpenTest::randomAccess()
@@ -528,6 +594,15 @@ void KioOpenTest::listAdvertisesStreamingTarget()
 void KioOpenTest::publicAccountUsesDefaultReadOnlyRouting()
 {
     qunsetenv("CHOMIKUJ_STREAMING_TARGET_URL");
+    const QString configPath =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+        + QStringLiteral("/chomikujrc");
+    {
+        QFile config(configPath);
+        QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        config.write("[Streaming]\nTargetUrl=read-only\n");
+        config.close();
+    }
 
     QEventLoop loop;
     QTimer timer;
@@ -551,6 +626,12 @@ void KioOpenTest::publicAccountUsesDefaultReadOnlyRouting()
     QCOMPARE(QUrl(target).path(), QStringLiteral("/movie.mkv"));
     job->deleteLater();
 
+    {
+        QFile config(configPath);
+        QVERIFY(config.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        config.write("[Streaming]\nTargetUrl=all\n");
+        config.close();
+    }
     qputenv("CHOMIKUJ_STREAMING_TARGET_URL", "all");
 }
 

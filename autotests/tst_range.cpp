@@ -36,7 +36,7 @@ class RangeTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    void probeHead();
+    void probe200Length();
     void probeRange();
     void probeFallback();
     void probeRefreshesUrl();
@@ -57,11 +57,12 @@ private Q_SLOTS:
     void readCancellation();
 };
 
-void RangeTest::probeHead()
+void RangeTest::probe200Length()
 {
     FakeTransport fake;
     fake.handler = [](const Chomikuj::HttpRequest &request) {
-        Q_ASSERT(request.method == QByteArrayLiteral("HEAD"));
+        Q_ASSERT(request.method == QByteArrayLiteral("GET"));
+        Q_ASSERT(request.headers.value("Range") == QByteArray("bytes=0-0"));
         Q_ASSERT(request.headers.value("Accept-Encoding") == QByteArray("identity"));
         return response(200, {}, {{"Content-Length", "12345"}});
     };
@@ -71,18 +72,14 @@ void RangeTest::probeHead()
     QCOMPARE(reader.probeExactSize({}, {}), qint64(12345));
     QCOMPARE(reader.size(), qint64(12345));
     QCOMPARE(fake.requests.size(), 1);
-    QCOMPARE(fake.requests.first().method, QByteArrayLiteral("HEAD"));
-    QCOMPARE(fake.requests.first().headers.value("Accept-Encoding"),
-             QByteArrayLiteral("identity"));
+    QCOMPARE(fake.requests.first().headers.value("Range"),
+             QByteArrayLiteral("bytes=0-0"));
 }
 
 void RangeTest::probeRange()
 {
     FakeTransport fake;
     fake.handler = [](const Chomikuj::HttpRequest &request) {
-        if (request.method == QByteArrayLiteral("HEAD")) {
-            return response(405);
-        }
         Q_ASSERT(request.method == QByteArrayLiteral("GET"));
         Q_ASSERT(request.headers.value("Range") == QByteArray("bytes=0-0"));
         return response(206, "x", {{"Content-Range", "bytes 0-0/4321"}});
@@ -91,17 +88,15 @@ void RangeTest::probeRange()
     RangeReader reader(fake, QStringLiteral("agent"), QStringLiteral("https://cdn/file"),
                        1024);
     QCOMPARE(reader.probeExactSize({}, {}), qint64(4321));
-    QCOMPARE(fake.requests.size(), 2);
-    QCOMPARE(fake.requests.at(1).headers.value("Range"), QByteArrayLiteral("bytes=0-0"));
+    QCOMPARE(fake.requests.size(), 1);
+    QCOMPARE(fake.requests.first().headers.value("Range"),
+             QByteArrayLiteral("bytes=0-0"));
 }
 
 void RangeTest::probeFallback()
 {
     FakeTransport fake;
-    fake.handler = [](const Chomikuj::HttpRequest &request) {
-        if (request.method == QByteArrayLiteral("HEAD")) {
-            return response(405);
-        }
+    fake.handler = [](const Chomikuj::HttpRequest &) {
         return response(200, "x");
     };
 

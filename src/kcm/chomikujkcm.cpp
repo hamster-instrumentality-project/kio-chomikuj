@@ -58,7 +58,9 @@ ChomikujKcm::ChomikujKcm(QObject *parent, const KPluginMetaData &data)
 
     auto *streamingHint = new QLabel(
         i18n("“All video files” makes normal Open With use random-access streaming, "
-             "but video files opened through kio-fuse become read-only."),
+             "but video files opened through kio-fuse become read-only. "
+             "Reopen a file or remount kio-fuse after changing this setting; "
+             "already-open files keep their previous I/O mode."),
         widget());
     streamingHint->setWordWrap(true);
     layout->addRow(streamingHint);

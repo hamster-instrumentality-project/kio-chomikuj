@@ -48,6 +48,10 @@ void PluginTest::streamingProtocolIsRegistered()
         QUrl(QStringLiteral("chomikujstream://account/file"))));
     QVERIFY(!KProtocolManager::canCopyFromFile(
         QUrl(QStringLiteral("chomikujstream://account/"))));
+    // A single warm worker keeps the FileJob caches hot; multiple workers
+    // each start with cold path/URL/size caches.
+    QCOMPARE(KProtocolInfo::maxWorkers(QStringLiteral("chomikujstream")), 1);
+    QCOMPARE(KProtocolInfo::maxWorkersPerHost(QStringLiteral("chomikujstream")), 1);
 }
 
 QTEST_GUILESS_MAIN(PluginTest)

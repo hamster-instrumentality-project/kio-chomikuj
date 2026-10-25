@@ -57,6 +57,11 @@ private:
         qint64 fetchedAt = 0;
     };
 
+    struct CachedEntry {
+        Entry entry;
+        qint64 fetchedAt = 0;
+    };
+
     QList<Entry> listFolder(qint64 folderId, bool useCache = true);
     Entry findChild(qint64 parentId, const QString &name, bool useCache = true);
     qint64 resolveFolder(const QString &path);
@@ -72,6 +77,7 @@ private:
     bool m_readOnly = false;
     PasswordProvider m_passwordProvider;
     QHash<qint64, CachedListing> m_cache;
+    QHash<QString, CachedEntry> m_entryCache;
 };
 
 } // namespace Chomikuj

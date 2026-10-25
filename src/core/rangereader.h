@@ -32,8 +32,8 @@ public:
     bool sizeKnown() const;
     QString url() const;
 
-    // Probes the signed URL for the exact size without downloading the whole
-    // file.  Updates the stored URL if the signed URL had to be refreshed.
+    // Probes the signed URL for the exact size with a one-byte Range request.
+    // Updates the stored URL if the signed URL had to be refreshed.
     qint64 probeExactSize(const UrlRefresher &refreshUrl, const Cancelled &cancelled);
 
     // Reads at most `length` bytes.  Returns an empty array at EOF, and throws
